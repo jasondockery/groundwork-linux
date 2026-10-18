@@ -1,0 +1,11 @@
+# Tailscale on Linux
+
+Read the [shared Tailscale guide](https://github.com/jasondockery/groundwork-core/blob/main/docs/tailscale.md) for policy, MagicDNS, MFA, device approval, expiry, platform capabilities, and two-way checks. This page owns Linux setup only; Omarchy has its own repo and Arch service steps.
+
+Where Homebrew is present, the shared Groundwork engine installs the Tailscale formula. For that installation, start the service with `sudo "$(command -v brew)" services start tailscale`, then sign in locally with `sudo "$(command -v tailscale)" up --timeout=5m` and approve the device. Resolving those executables before `sudo` preserves Homebrew's location when root has a different PATH. If another supported package source already owns `tailscaled`, use that service instead of starting a duplicate daemon.
+
+Headless and ARM64 Ubuntu setups can skip Homebrew entirely. On those hosts, install the stable native package using the [official instructions for your distribution and release](https://pkgs.tailscale.com/stable/) first; the shared engine does not install that package automatically. On Ubuntu with systemd, run `sudo systemctl enable --now tailscaled`, then `sudo tailscale up --timeout=5m` and complete local device approval. Use the native package manager for updates. These are host-service steps, not development-container setup. WSL normally uses the Windows host's Tailscale installation; see [groundwork-windows](https://github.com/jasondockery/groundwork-windows/blob/main/docs/tailscale.md) before enrolling a WSL distribution separately.
+
+After reviewing the shared owner-scoped network and SSH policy, enable inbound Tailscale SSH with `sudo "$(command -v tailscale)" set --ssh`. Check `tailscale status`. From another approved machine, substitute its local login and MagicDNS name in `ssh LOCAL_USER@MACHINE`; confirm the remote hostname and attach to tmux or Herdr. Test the reverse direction separately.
+
+Keep agent web interfaces on loopback and use SSH forwarding when needed. Do not advertise routes, enable Funnel, open public ports, or insert static DNS entries for ordinary personal access. Package/service presence is not proof of sign-in or cross-machine acceptance.
