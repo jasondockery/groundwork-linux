@@ -14,6 +14,8 @@ Read [Tailscale setup](docs/tailscale.md), choose the terminal multiplexer with 
 
 ## Updates and ownership
 
+Desktop applies also prepare the shared engine's `groundwork-remote-desktop` helper. On GNOME, finish Settings → System → Remote Desktop → Desktop Sharing once; subsequent applies preserve its credentials and enable/start its native user service. Use an RDP client, including Windows App on a Mac, and the port shown by GNOME. Headless, container and WSL environments do not get a desktop service. Other compositors retain their own supported sharing path; Groundwork does not replace the desktop. See [desktop access](docs/tailscale.md#desktop-access).
+
 Update this entry point with a reviewed `git pull --ff-only`. The engine owns applied configuration and `update-all`; do not copy its home files here. T3 Code follows the selected Nightly channel; Herdr follows the engine's supported package source. Neither tool is authenticated automatically. [Shared agent-tool guidance](https://github.com/jasondockery/groundwork-core/blob/main/docs/ai-tools-and-remote-access.md) explains the boundary.
 
 ## License
