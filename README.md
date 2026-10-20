@@ -16,7 +16,25 @@ Read [Tailscale setup](docs/tailscale.md), choose the terminal multiplexer with 
 
 Desktop applies also prepare the shared engine's `groundwork-remote-desktop` helper. On GNOME, finish Settings → System → Remote Desktop → Desktop Sharing once; subsequent applies preserve its credentials and enable/start its native user service. Use an RDP client, including Windows App on a Mac, and the port shown by GNOME. Headless, container and WSL environments do not get a desktop service. Other compositors retain their own supported sharing path; Groundwork does not replace the desktop. See [desktop access](docs/tailscale.md#desktop-access).
 
-Update this entry point with a reviewed `git pull --ff-only`. The engine owns applied configuration and `update-all`; do not copy its home files here. T3 Code follows the selected Nightly channel; Herdr follows the engine's supported package source. Neither tool is authenticated automatically. [Shared agent-tool guidance](https://github.com/jasondockery/groundwork-core/blob/main/docs/ai-tools-and-remote-access.md) explains the boundary.
+After setup, run `update-all` from any directory for normal Groundwork tool
+updates and maintenance. Run `groundwork-update` to synchronize and apply only
+configuration using saved settings. Configuration applies can install newly
+declared tools; they do not request routine upgrades or cleanup. Existing
+installations receive the new command on their next successful `update-all`.
+Use `groundwork-configure` to change preferences.
+
+Both commands belong to the visible `groundwork-mac` engine checkout selected
+during setup. This entry-point checkout contains setup guidance, not applied
+home files, and does not need pulling before daily maintenance. Pull it with
+`git pull --ff-only` only when you need newer entry-point documentation or
+bootstrap code, after reviewing local changes. Keep Linux OS updates with your
+distribution's supported updater; `update-all` does not promise a distribution
+upgrade. Do not copy the engine's home files here.
+
+T3 Code follows the selected Nightly channel; Herdr follows the engine's
+supported package source. Neither tool is authenticated automatically.
+[Shared agent-tool guidance](https://github.com/jasondockery/groundwork-core/blob/main/docs/ai-tools-and-remote-access.md)
+explains the boundary.
 
 ## License
 
