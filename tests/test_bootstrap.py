@@ -59,11 +59,20 @@ class BootstrapTests(unittest.TestCase):
         log = self.root / 'calls'
         return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
 
+    def helper_path(self):
+        return self.root / '.local' / 'lib' / 'groundwork-linux' / 'install-desktop-apps.sh'
+
+    def hook_path(self, engine=None):
+        root = engine or (self.root / 'engine')
+        return root / 'home' / 'run_after_33-groundwork-linux-desktop-apps.sh'
+
     def test_help_and_invalid_input_have_no_external_effects(self):
         self.run_wrapper('--help')
         self.run_wrapper('--typo', status=64)
         self.run_wrapper('unexpected', status=64)
         self.assertEqual(self.calls(), [])
+        self.assertFalse(self.helper_path().exists())
+        self.assertFalse((self.root / 'engine').exists())
 
     def test_other_os_is_refused_before_git(self):
         self.env['FIXTURE_OS'] = 'Darwin'
@@ -77,13 +86,26 @@ class BootstrapTests(unittest.TestCase):
 
     @unittest.skipIf(Path('/usr/share/omarchy').exists(), 'positive wrapper boundary requires a non-Omarchy host; covered in CI')
     def test_prepare_then_apply_and_reject_dirty_engine(self):
-        self.run_wrapper('--prepare-only')
+        prepared = self.run_wrapper('--prepare-only')
+        self.assertNotIn('Registered the FreeTube apply hook', prepared.stdout)
         self.assertFalse((self.root / 'applied').exists())
-        self.run_wrapper()
+        self.assertFalse(self.helper_path().exists())
+        self.assertFalse(self.hook_path().exists())
+        result = self.run_wrapper()
+        self.assertIn('Registered the FreeTube apply hook', result.stdout)
         self.assertEqual((self.root / 'applied').read_text(), 'applied')
+        self.assertEqual(self.helper_path().read_text(), (REPO / 'install-desktop-apps.sh').read_text())
+        self.assertTrue(os.access(self.helper_path(), os.X_OK))
+        self.assertEqual(self.hook_path().read_text(),
+                         (REPO / 'engine-hooks/run_after_33-groundwork-linux-desktop-apps.sh').read_text())
+        self.assertTrue(os.access(self.hook_path(), os.X_OK))
+        marker = 'home/run_after_33-groundwork-linux-desktop-apps.sh'
+        exclude = self.root / 'engine' / '.git' / 'info' / 'exclude'
+        self.assertEqual(exclude.read_text().count(marker), 1)
         (self.root / 'applied').unlink()
         self.env['FIXTURE_DIRTY'] = ' M user-file'
-        self.run_wrapper(status=1)
+        dirty = self.run_wrapper(status=1)
+        self.assertIn('local edits', dirty.stderr)
         self.assertFalse((self.root / 'applied').exists())
 
     @unittest.skipIf(Path('/usr/share/omarchy').exists(), 'positive wrapper boundary requires a non-Omarchy host; covered in CI')
@@ -94,6 +116,8 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn('Cannot inspect', result.stderr)
         self.assertFalse((self.root / 'applied').exists())
         self.assertTrue((self.root / 'engine').exists())
+        self.assertFalse(self.hook_path().exists())
+        self.assertFalse(self.helper_path().exists())
 
     @unittest.skipIf(Path('/usr/share/omarchy').exists(), 'positive wrapper boundary requires a non-Omarchy host; covered in CI')
     def test_existing_ssh_origin_requires_explicit_selection_and_is_preserved(self):
@@ -114,6 +138,54 @@ class BootstrapTests(unittest.TestCase):
         self.env['FIXTURE_ORIGIN'] = 'git@github.com:someone/unrelated.git'
         self.run_wrapper(status=1)
         self.assertFalse((self.root / 'applied').exists())
+        self.assertFalse(self.hook_path().exists())
+
+    @unittest.skipIf(Path('/usr/share/omarchy').exists(), 'positive wrapper boundary requires a non-Omarchy host; covered in CI')
+    def test_apply_registers_hook_without_dirtying_engine(self):
+        engine = (self.root / 'real-engine').resolve()
+        engine.mkdir()
+        subprocess.run(['git', 'init', '-b', 'main', str(engine)], check=True, capture_output=True, text=True)
+        subprocess.run(['git', '-C', str(engine), 'remote', 'add', 'origin',
+                        'https://github.com/jasondockery/groundwork-mac.git'], check=True)
+        home = engine / 'home'
+        home.mkdir()
+        (home / 'README').write_text('tracked\n')
+        subprocess.run(['git', '-C', str(engine), 'add', 'home/README'], check=True)
+        subprocess.run(['git', '-C', str(engine),
+                        '-c', 'user.email=groundwork-test@example.com',
+                        '-c', 'user.name=Groundwork Test',
+                        '-c', 'commit.gpgsign=false',
+                        'commit', '-m', 'track engine home'],
+                       check=True, capture_output=True, text=True)
+        bindir = self.root / 'realbin'
+        bindir.mkdir()
+        for name in ('uname', 'chezmoi'):
+            (bindir / name).symlink_to(self.bin / 'stub')
+        self.env['PATH'] = f'{bindir}:/usr/bin:/bin'
+        self.env['GROUNDWORK_ENGINE_DIR'] = str(engine)
+        for key in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
+            self.env.pop(key, None)
+        self.run_wrapper()
+        self.run_wrapper()
+        marker = 'home/run_after_33-groundwork-linux-desktop-apps.sh'
+        exclude = engine / '.git' / 'info' / 'exclude'
+        self.assertEqual(exclude.read_text().count(marker), 1)
+        self.assertTrue(os.access(self.hook_path(engine), os.X_OK))
+        status = subprocess.run(['git', '-C', str(engine), 'status', '--porcelain'],
+                                check=True, capture_output=True, text=True)
+        self.assertEqual(status.stdout, '')
+        text = exclude.read_text().replace(marker + '\n', '')
+        exclude.write_text(text)
+        dirty = subprocess.run(['git', '-C', str(engine), 'status', '--porcelain'],
+                               check=True, capture_output=True, text=True)
+        self.assertEqual(dirty.stdout, f'?? {marker}\n')
+        repaired = self.run_wrapper('--prepare-only')
+        self.assertIn('ignoring the local FreeTube engine hook', repaired.stdout)
+        self.assertIn('No configuration was applied', repaired.stdout)
+        status = subprocess.run(['git', '-C', str(engine), 'status', '--porcelain'],
+                                check=True, capture_output=True, text=True)
+        self.assertEqual(status.stdout, '', status.stdout)
+        self.assertEqual(exclude.read_text().count(marker), 1)
 
 
 if __name__ == '__main__':

@@ -1,10 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ENGINE_DESKTOP_HOOK=home/run_after_33-groundwork-linux-desktop-apps.sh
+
 usage() {
   echo "Usage: $0 [--prepare-only]"
   echo "Prepare the shared Groundwork engine, then run its Linux setup."
+  echo "On a Linux desktop, setup registers a FreeTube Flatpak apply hook."
   echo "--prepare-only clones the engine and prints preview steps without applying it."
+}
+
+ignore_engine_desktop_hook() {
+  local exclude="$engine_dir/.git/info/exclude"
+  mkdir -p "$(dirname "$exclude")"
+  if [[ -s "$exclude" && -n "$(tail -c 1 "$exclude")" ]]; then
+    printf '\n' >>"$exclude"
+  fi
+  if [[ ! -f "$exclude" ]] || ! grep -qxF "$ENGINE_DESKTOP_HOOK" "$exclude"; then
+    printf '%s\n' "$ENGINE_DESKTOP_HOOK" >>"$exclude"
+  fi
+}
+
+install_linux_desktop_apps() {
+  local script_dir helper hook_src hook_dest
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  helper="${HOME}/.local/lib/groundwork-linux/install-desktop-apps.sh"
+  mkdir -p "$(dirname "$helper")"
+  cp "${script_dir}/install-desktop-apps.sh" "$helper"
+  chmod 755 "$helper"
+  hook_src="${script_dir}/engine-hooks/run_after_33-groundwork-linux-desktop-apps.sh"
+  hook_dest="${engine_dir}/${ENGINE_DESKTOP_HOOK}"
+  mkdir -p "$(dirname "$hook_dest")"
+  cp "$hook_src" "$hook_dest"
+  chmod 755 "$hook_dest"
+  ignore_engine_desktop_hook
+  printf 'Registered the FreeTube apply hook at %s\n' "$hook_dest"
 }
 
 prepare_only=0
@@ -41,6 +71,14 @@ if [[ -e $engine_dir ]]; then
     echo "Cannot inspect the engine's Git status. Repair it before setup." >&2
     exit 1
   fi
+  if [[ "$engine_status" == "?? $ENGINE_DESKTOP_HOOK" ]]; then
+    ignore_engine_desktop_hook
+    echo "Groundwork: ignoring the local FreeTube engine hook so the engine checkout stays clean."
+    if ! engine_status=$(git -C "$engine_dir" status --porcelain); then
+      echo "Cannot inspect the engine's Git status. Repair it before setup." >&2
+      exit 1
+    fi
+  fi
   [[ -z $engine_status ]] || {
     echo "The engine has local edits. Preserve and reconcile them before setup." >&2; exit 1;
   }
@@ -55,4 +93,7 @@ if [[ $prepare_only -eq 1 ]]; then
   exit 0
 fi
 
+# Register the FreeTube hook before apply so this run and later update-all runs
+# execute it. chezmoi apply is what update-all uses for declared tools.
+install_linux_desktop_apps
 exec chezmoi --source "$engine_dir" init --apply
