@@ -4,8 +4,10 @@
 # Headless and WSL targets skip it. Omarchy is refused.
 # update-all runs this with GROUNDWORK_UPDATE_SCOPE=maintenance and updates an
 # existing install. A configuration-only apply installs it when missing and
-# leaves an existing install unchanged. This script does not write FreeTube
-# settings.
+# leaves an existing install unchanged. A failed remote-add, install, or update
+# warns and returns success so the rest of chezmoi apply continues; the next
+# update-all retries FreeTube. A missing flatpak command still fails. This
+# script does not write FreeTube settings.
 set -euo pipefail
 
 APP_ID=io.freetubeapp.FreeTube
@@ -27,7 +29,9 @@ for arg in "$@"; do
 done
 
 [[ "$(uname -s)" == Linux ]] || { echo "Run this installer on Linux." >&2; exit 1; }
-if command -v omarchy >/dev/null 2>&1 || [[ -d /usr/share/omarchy ]]; then
+# GROUNDWORK_OMARCHY_DIR lets a fixture stand in for /usr/share/omarchy.
+omarchy_share="${GROUNDWORK_OMARCHY_DIR:-/usr/share/omarchy}"
+if command -v omarchy >/dev/null 2>&1 || [[ -d "$omarchy_share" ]]; then
   echo "Omarchy owns this environment. Use groundwork-omarchy-mac-arm64 on Apple Silicon." >&2
   exit 1
 fi
@@ -91,11 +95,16 @@ if [[ "$installed" -eq 1 && "${GROUNDWORK_UPDATE_SCOPE:-}" == configuration ]]; 
   exit 0
 fi
 
-flatpak remote-add --user --if-not-exists flathub "$FLATHUB_URL"
+flatpak_continue() {
+  echo "Groundwork: FreeTube wasn't installed or updated. The rest of the apply continues. Run update-all to retry it." >&2
+  exit 0
+}
+
+flatpak remote-add --user --if-not-exists flathub "$FLATHUB_URL" || flatpak_continue
 if [[ "$installed" -eq 0 ]]; then
-  flatpak install --user -y --noninteractive flathub "$APP_ID"
+  flatpak install --user -y --noninteractive flathub "$APP_ID" || flatpak_continue
   printf 'Groundwork: installed FreeTube (%s) for this user.\n' "$APP_ID"
 else
-  flatpak update --user -y --noninteractive "$APP_ID"
+  flatpak update --user -y --noninteractive "$APP_ID" || flatpak_continue
   printf 'Groundwork: updated FreeTube (%s).\n' "$APP_ID"
 fi

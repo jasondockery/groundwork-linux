@@ -6,8 +6,8 @@ set -euo pipefail
 
 helper="${GROUNDWORK_LINUX_DESKTOP_APPS:-$HOME/.local/lib/groundwork-linux/install-desktop-apps.sh}"
 if [[ ! -x "$helper" ]]; then
-  echo "Groundwork: Linux desktop app helper is missing: $helper" >&2
-  echo "Re-run bootstrap.sh from groundwork-linux to restore it." >&2
-  exit 1
+  echo "Groundwork: Linux desktop app helper is not executable: $helper" >&2
+  echo "Groundwork: a missing helper only skips FreeTube. The rest of the apply continues." >&2
+  exit 0
 fi
 exec "$helper" "$@"

@@ -43,7 +43,7 @@ explains the boundary.
 
 ## Desktop apps
 
-Linux desktops install [FreeTube](https://freetubeapp.io/) by default: a private YouTube client with no Google sign-in. The package is the Flathub user Flatpak `io.freetubeapp.FreeTube`. Desktop Macs get the Homebrew cask `freetube` from the shared engine. This repository owns the Linux Flatpak and skips it on headless and WSL targets. Groundwork writes no FreeTube settings. See [desktop apps](docs/desktop-apps.md).
+Linux desktops install [FreeTube](https://freetubeapp.io/) by default: a private YouTube client with no Google sign-in. The package is the Flathub user Flatpak `io.freetubeapp.FreeTube`. Desktop Macs get the official pinned FreeTube disk image from the shared engine. Homebrew disabled the `freetube` cask, so the engine does not declare it. Linux and WSL never receive that disk image. This repository installs the Linux Flatpak and skips it on headless and WSL targets. Groundwork writes no FreeTube settings. See [desktop apps](docs/desktop-apps.md).
 
 ## License
 

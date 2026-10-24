@@ -1,6 +1,7 @@
 """FreeTube Flatpak fixtures. Successful installs use a stub flatpak, not the host."""
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import json
@@ -9,7 +10,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 APP_ID = 'io.freetubeapp.FreeTube'
 FLATHUB = 'https://dl.flathub.org/repo/flathub.flatpakrepo'
-STUB = '''#!/usr/bin/env python3
+STUB = '''#!/usr/bin/python3
 import os, pathlib, sys
 root = pathlib.Path(os.environ['WRAPPER_FIXTURE'])
 name = pathlib.Path(sys.argv[0]).name
@@ -45,11 +46,14 @@ class DesktopAppTests(unittest.TestCase):
         stub.chmod(0o755)
         for name in ('uname', 'flatpak'):
             (self.bin / name).symlink_to(stub)
+        for name in ('grep', 'head', 'bash', 'python3'):
+            (self.bin / name).symlink_to(shutil.which(name))
         osrelease = self.root / 'osrelease'
         osrelease.write_text('6.8.0-100-generic\n')
         self.env = dict(os.environ, WRAPPER_FIXTURE=str(self.root),
-                        PATH=f'{self.bin}:/usr/bin:/bin', HOME=str(self.root),
-                        GROUNDWORK_OSRELEASE_FILE=str(osrelease))
+                        PATH=str(self.bin), HOME=str(self.root),
+                        GROUNDWORK_OSRELEASE_FILE=str(osrelease),
+                        GROUNDWORK_OMARCHY_DIR=str(self.root / 'not-omarchy'))
         for key in ('DISPLAY', 'WAYLAND_DISPLAY', 'WSL_DISTRO_NAME', 'WSL_INTEROP',
                     'GROUNDWORK_UPDATE_SCOPE', 'XDG_CONFIG_HOME',
                     'GROUNDWORK_LINUX_DESKTOP_APPS', 'FIXTURE_OS', 'FIXTURE_FLATPAK_FAIL'):
@@ -57,7 +61,7 @@ class DesktopAppTests(unittest.TestCase):
 
     def run_installer(self, *args, status=0, script=None):
         target = script or (REPO / 'install-desktop-apps.sh')
-        result = subprocess.run(['bash', str(target), *args], env=self.env,
+        result = subprocess.run(['/usr/bin/bash', str(target), *args], env=self.env,
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, status, result.stdout + result.stderr)
         return result
@@ -76,6 +80,19 @@ class DesktopAppTests(unittest.TestCase):
 
     def assert_no_freetube_config(self):
         self.assertFalse((self.root / '.var').exists())
+
+    def assert_flatpak_failure_continues(self, result):
+        self.assertIn("wasn't installed or updated", result.stderr)
+        self.assertIn('rest of the apply continues', result.stderr)
+        self.assertIn('update-all', result.stderr)
+        self.assertIn('retry', result.stderr)
+        self.assertNotIn('installed FreeTube', result.stdout)
+        self.assertNotIn('updated FreeTube', result.stdout)
+
+    def reset_calls(self):
+        log = self.root / 'calls'
+        if log.exists():
+            log.unlink()
 
     def test_shell_syntax(self):
         for name in ('bootstrap.sh', 'install-desktop-apps.sh',
@@ -106,6 +123,12 @@ class DesktopAppTests(unittest.TestCase):
         (self.bin / 'omarchy').symlink_to(self.bin / 'stub')
         result = self.run_installer(status=1)
         self.assertIn('Omarchy', result.stderr)
+        share = self.root / 'omarchy-share'
+        share.mkdir()
+        self.env['GROUNDWORK_OMARCHY_DIR'] = str(share)
+        (self.bin / 'omarchy').unlink()
+        result = self.run_installer(status=1)
+        self.assertIn('Omarchy', result.stderr)
         self.assertEqual(self.flatpak_calls(), [])
         self.assert_no_freetube_config()
 
@@ -118,6 +141,10 @@ class DesktopAppTests(unittest.TestCase):
         self.assertIn('skipping FreeTube on WSL', result.stdout)
         (self.root / 'osrelease').write_text('6.8.0-100-generic\n')
         self.env['WSL_DISTRO_NAME'] = 'Ubuntu'
+        result = self.run_installer()
+        self.assertIn('skipping FreeTube on WSL', result.stdout)
+        self.env.pop('WSL_DISTRO_NAME')
+        self.env['WSL_INTEROP'] = '/run/WSL/1_interop'
         result = self.run_installer()
         self.assertIn('skipping FreeTube on WSL', result.stdout)
         self.assertEqual(self.flatpak_calls(), [])
@@ -174,14 +201,21 @@ class DesktopAppTests(unittest.TestCase):
             ['info', '--user', APP_ID],
         ])
 
-    def test_maintenance_scope_updates_an_existing_install(self):
-        (self.root / 'freetube-installed').write_text('installed')
+    def test_maintenance_scope_installs_when_missing_and_updates_when_present(self):
         self.env['DISPLAY'] = ':1'
         self.env['GROUNDWORK_UPDATE_SCOPE'] = 'maintenance'
-        result = self.run_installer()
-        self.assertIn('updated FreeTube', result.stdout)
-        self.assertEqual(self.flatpak_calls()[-1],
-                         ['update', '--user', '-y', '--noninteractive', APP_ID])
+        installed = self.run_installer()
+        self.assertIn('installed FreeTube', installed.stdout)
+        updated = self.run_installer()
+        self.assertIn('updated FreeTube', updated.stdout)
+        self.assertEqual(self.flatpak_calls(), [
+            ['info', '--user', APP_ID],
+            ['remote-add', '--user', '--if-not-exists', 'flathub', FLATHUB],
+            ['install', '--user', '-y', '--noninteractive', 'flathub', APP_ID],
+            ['info', '--user', APP_ID],
+            ['remote-add', '--user', '--if-not-exists', 'flathub', FLATHUB],
+            ['update', '--user', '-y', '--noninteractive', APP_ID],
+        ])
 
     def test_missing_flatpak_on_a_desktop_fails_before_a_config_write(self):
         self.bin.joinpath('flatpak').unlink()
@@ -192,17 +226,45 @@ class DesktopAppTests(unittest.TestCase):
         self.assertEqual(self.flatpak_calls(), [])
         self.assert_no_freetube_config()
 
-    def test_flatpak_install_failure_is_returned(self):
+    def test_flatpak_command_failures_continue_the_apply(self):
         self.env['DISPLAY'] = ':1'
-        self.env['FIXTURE_FLATPAK_FAIL'] = 'install'
-        result = self.run_installer(status=1)
-        self.assertNotIn('installed FreeTube', result.stdout)
-        self.assertFalse((self.root / 'freetube-installed').exists())
-
-    def test_engine_hook_requires_the_helper_and_forwards_the_desktop_rules(self):
         hook = REPO / 'engine-hooks/run_after_33-groundwork-linux-desktop-apps.sh'
-        missing = self.run_installer(status=1, script=hook)
-        self.assertIn('helper is missing', missing.stderr)
+        for command in ('remote-add', 'install', 'update'):
+            for script in (None, hook):
+                with self.subTest(command=command, script=script):
+                    self.reset_calls()
+                    state = self.root / 'freetube-installed'
+                    if command == 'update':
+                        state.write_text('installed')
+                    elif state.exists():
+                        state.unlink()
+                    self.env['FIXTURE_FLATPAK_FAIL'] = command
+                    if script is None:
+                        self.env.pop('GROUNDWORK_LINUX_DESKTOP_APPS', None)
+                    else:
+                        self.env['GROUNDWORK_LINUX_DESKTOP_APPS'] = str(REPO / 'install-desktop-apps.sh')
+                    result = self.run_installer(script=script)
+                    self.assert_flatpak_failure_continues(result)
+                    names = [call[0] for call in self.flatpak_calls()]
+                    self.assertIn(command, names)
+                    if command == 'remote-add':
+                        self.assertNotIn('install', names)
+                        self.assertNotIn('update', names)
+                    if command == 'install':
+                        self.assertFalse(state.exists())
+
+    def test_engine_hook_skips_a_missing_helper_and_forwards_desktop_rules(self):
+        hook = REPO / 'engine-hooks/run_after_33-groundwork-linux-desktop-apps.sh'
+        missing = self.run_installer(script=hook)
+        self.assertIn('not executable', missing.stderr)
+        self.assertIn('only skips FreeTube', missing.stderr)
+        inert = self.root / 'inert-helper.sh'
+        inert.write_text('#!/bin/bash\nexit 7\n')
+        inert.chmod(0o644)
+        self.env['GROUNDWORK_LINUX_DESKTOP_APPS'] = str(inert)
+        unexecutable = self.run_installer(script=hook)
+        self.assertIn('not executable', unexecutable.stderr)
+        self.assertIn('only skips FreeTube', unexecutable.stderr)
         self.env['GROUNDWORK_LINUX_DESKTOP_APPS'] = str(REPO / 'install-desktop-apps.sh')
         (self.root / 'osrelease').write_text('6.6.87.2-microsoft-standard-WSL2\n')
         skipped = self.run_installer(script=hook)
