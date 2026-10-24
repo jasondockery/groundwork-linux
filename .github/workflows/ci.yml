@@ -17,4 +17,6 @@ jobs:
         with:
           persist-credentials: false
       - run: bash -n bootstrap.sh
+      - run: bash -n install-desktop-apps.sh
+      - run: bash -n engine-hooks/run_after_33-groundwork-linux-desktop-apps.sh
       - run: python3 -B -m unittest discover -s tests -v

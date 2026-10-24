@@ -6,7 +6,7 @@ The existing shared provisioning implementation currently lives in `groundwork-m
 
 ## Setup
 
-Clone this repo over HTTPS into a new directory; keep an old Groundwork checkout in place. Install Git and chezmoi through their supported OS sources first. Read `bootstrap.sh`, then run `bash bootstrap.sh` on Linux. For an existing installation, use [migration](docs/migration.md) instead so you can preview the new source before applying it.
+Clone this repo over HTTPS into a new directory; keep an old Groundwork checkout in place. Install Git and chezmoi through their supported OS sources first. A Linux desktop also needs Flatpak from the distribution (Ubuntu/Debian: `sudo apt install flatpak`) so setup can install FreeTube. Headless and WSL targets skip that app. Read `bootstrap.sh`, then run `bash bootstrap.sh` on Linux. For an existing installation, use [migration](docs/migration.md) instead so you can preview the new source before applying it.
 
 `GROUNDWORK_ENGINE_DIR` selects the shared engine checkout, defaulting to `~/code/groundwork-mac`. `GROUNDWORK_REPO_URL` selects its Git URL, defaulting to `https://github.com/jasondockery/groundwork-mac.git`. Public HTTPS access needs no GitHub login. If your existing engine uses SSH, set this variable to that exact origin URL before running the wrapper; its remote is preserved. Existing engine checkouts must match that URL and be clean. The engine's own platform checks and installation requirements remain authoritative; this wrapper does not broaden supported architectures or desktop promises.
 
@@ -23,6 +23,11 @@ declared tools; they do not request routine upgrades or cleanup. Existing
 installations receive the new command on their next successful `update-all`.
 Use `groundwork-configure` to change preferences.
 
+On a Linux desktop, `update-all` also installs or updates FreeTube, the Flathub
+user Flatpak `io.freetubeapp.FreeTube`. `groundwork-update` installs that
+Flatpak when it is missing and leaves an existing install unchanged. See
+[desktop apps](docs/desktop-apps.md).
+
 Both commands belong to the visible `groundwork-mac` engine checkout selected
 during setup. This entry-point checkout contains setup guidance, not applied
 home files, and does not need pulling before daily maintenance. Pull it with
@@ -35,6 +40,10 @@ T3 Code follows the selected Nightly channel; Herdr follows the engine's
 supported package source. Neither tool is authenticated automatically.
 [Shared agent-tool guidance](https://github.com/jasondockery/groundwork-core/blob/main/docs/ai-tools-and-remote-access.md)
 explains the boundary.
+
+## Desktop apps
+
+Linux desktops install [FreeTube](https://freetubeapp.io/) by default: a private YouTube client with no Google sign-in. The package is the Flathub user Flatpak `io.freetubeapp.FreeTube`. Desktop Macs get the Homebrew cask `freetube` from the shared engine. This repository owns the Linux Flatpak and skips it on headless and WSL targets. Groundwork writes no FreeTube settings. See [desktop apps](docs/desktop-apps.md).
 
 ## License
 

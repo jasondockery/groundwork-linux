@@ -7,3 +7,7 @@ On the same Linux installation that used Groundwork, clone this repo to a new di
 Use that engine path in the shared guide's `chezmoi --source ... diff` and `apply` steps. Preserve the old stored answers instead of forcing a fresh interview. An old terminal multiplexer selection remains in effect; choose Both through `groundwork-configure` after migration if you want Herdr primary and tmux available for lessons. Verify the Omarchy-aligned keys rather than restoring the old Groundwork map by default.
 
 This migration is for non-Omarchy Linux. No existing Groundwork-on-Omarchy migration is supported or needed for this task. Native Omarchy uses its dedicated environment repo.
+
+## Desktop apps
+
+Linux desktops install FreeTube from this entry point as the Flathub user Flatpak `io.freetubeapp.FreeTube`. After the engine apply, run `bash bootstrap.sh` on a clean engine checkout to register the local apply hook that `update-all` runs. Headless and WSL targets skip FreeTube. See [desktop apps](desktop-apps.md).
