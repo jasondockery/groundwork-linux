@@ -95,7 +95,7 @@ class DesktopAppTests(unittest.TestCase):
             log.unlink()
 
     def test_shell_syntax(self):
-        for name in ('bootstrap.sh', 'install-desktop-apps.sh',
+        for name in ('bootstrap.sh', 'install-desktop-apps.sh', 'install-brave.sh',
                      'engine-hooks/run_after_33-groundwork-linux-desktop-apps.sh'):
             subprocess.run(['bash', '-n', str(REPO / name)], check=True)
 

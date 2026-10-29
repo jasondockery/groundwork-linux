@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
 
 permissions:
@@ -16,7 +15,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          submodules: true
       - run: bash -n bootstrap.sh
       - run: bash -n install-desktop-apps.sh
+      - run: bash -n install-brave.sh
       - run: bash -n engine-hooks/run_after_33-groundwork-linux-desktop-apps.sh
       - run: python3 -B -m unittest discover -s tests -v

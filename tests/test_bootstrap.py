@@ -87,15 +87,23 @@ class BootstrapTests(unittest.TestCase):
     @unittest.skipIf(Path('/usr/share/omarchy').exists(), 'positive wrapper boundary requires a non-Omarchy host; covered in CI')
     def test_prepare_then_apply_and_reject_dirty_engine(self):
         prepared = self.run_wrapper('--prepare-only')
-        self.assertNotIn('Registered the FreeTube apply hook', prepared.stdout)
+        self.assertNotIn('Registered the Linux desktop apply hook', prepared.stdout)
         self.assertFalse((self.root / 'applied').exists())
         self.assertFalse(self.helper_path().exists())
+        self.assertFalse((self.root / '.local' / 'lib' / 'groundwork-linux' / 'install-brave.sh').exists())
+        self.assertFalse((self.root / '.local' / 'lib' / 'groundwork-linux' / 'brave.json').exists())
         self.assertFalse(self.hook_path().exists())
         result = self.run_wrapper()
-        self.assertIn('Registered the FreeTube apply hook', result.stdout)
+        self.assertIn('Registered the Linux desktop apply hook', result.stdout)
         self.assertEqual((self.root / 'applied').read_text(), 'applied')
         self.assertEqual(self.helper_path().read_text(), (REPO / 'install-desktop-apps.sh').read_text())
         self.assertTrue(os.access(self.helper_path(), os.X_OK))
+        brave_helper = self.root / '.local' / 'lib' / 'groundwork-linux' / 'install-brave.sh'
+        brave_spec = self.root / '.local' / 'lib' / 'groundwork-linux' / 'brave.json'
+        self.assertEqual(brave_helper.read_text(), (REPO / 'install-brave.sh').read_text())
+        self.assertTrue(os.access(brave_helper, os.X_OK))
+        self.assertEqual(brave_spec.read_text(), (REPO / 'core' / 'browser' / 'brave.json').read_text())
+        self.assertFalse(os.access(brave_spec, os.X_OK))
         self.assertEqual(self.hook_path().read_text(),
                          (REPO / 'engine-hooks/run_after_33-groundwork-linux-desktop-apps.sh').read_text())
         self.assertTrue(os.access(self.hook_path(), os.X_OK))
@@ -180,7 +188,7 @@ class BootstrapTests(unittest.TestCase):
                                check=True, capture_output=True, text=True)
         self.assertEqual(dirty.stdout, f'?? {marker}\n')
         repaired = self.run_wrapper('--prepare-only')
-        self.assertIn('ignoring the local FreeTube engine hook', repaired.stdout)
+        self.assertIn('ignoring the local Linux desktop engine hook', repaired.stdout)
         self.assertIn('No configuration was applied', repaired.stdout)
         status = subprocess.run(['git', '-C', str(engine), 'status', '--porcelain'],
                                 check=True, capture_output=True, text=True)
