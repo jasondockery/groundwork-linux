@@ -42,10 +42,10 @@ Reviewed on 2026-10-29 against that spec and against [brave.com/linux](https://b
 
 | Family | What Groundwork runs after you say yes |
 | --- | --- |
-| Debian, Ubuntu, Mint | Brave's apt keyring and `brave-browser-release.sources`, then `apt install brave-browser` |
-| Fedora 41 and newer | `dnf config-manager addrepo --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo`, then `dnf install brave-browser` |
-| Fedora before 41, and RHEL | `dnf config-manager --add-repo` with that same repo file, then `dnf install brave-browser` |
-| openSUSE | `zypper addrepo` with that repo file, then `zypper install brave-browser` |
+| Debian, Ubuntu, Mint | `curl` when it is missing (`sudo apt install curl`), then Brave's apt keyring and `brave-browser-release.sources`, then `apt install brave-browser` |
+| Fedora 41 and newer | `dnf install dnf-plugins-core`, then `dnf config-manager addrepo --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo`, then `dnf install brave-browser` |
+| Fedora before 41, and RHEL | `dnf install dnf-plugins-core`, then `dnf config-manager --add-repo` with that same repo file, then `dnf install brave-browser` |
+| openSUSE | `zypper --non-interactive --gpg-auto-import-keys addrepo` with that repo file, then the same flags on `zypper install brave-browser` |
 | Arch | `brave-bin` from the AUR when `paru`, `pikaur`, or `yay` is installed. Otherwise Groundwork prints `yay -Sy brave-bin` and installs nothing. |
 | Fedora Atomic | Groundwork prints the `rpm-ostree` commands and installs nothing. The install needs a reboot. |
 | Any other family | One line with https://brave.com/linux/. Nothing is installed. |
@@ -68,7 +68,7 @@ Bitwarden (`nngceckbapebfimnlniiiahkandclblb`) is the only extension the spec of
 
 ### Other browsers
 
-If Chrome or Chromium is on `PATH`, Groundwork prints one line about importing at `brave://settings/importData`. It does not remove that browser or its profile. If Brave is installed from Flatpak or Snap and the official package is not, Groundwork offers to install the official package and keep that data directory. It does not uninstall Flatpak or Snap, and it does not delete their data. A decline is saved in `~/.config/groundwork/brave-repo-move-declined`.
+If Chrome or Chromium is on `PATH`, Groundwork prints one line about importing at `brave://settings/importData`. It does not remove that browser or its profile. If Brave is installed from Flatpak or Snap and the official package is not, Groundwork offers the official package as a separate profile and leaves the Flatpak or Snap copy installed. Bookmarks move only at `brave://settings/importData`. Passwords stay in Bitwarden. It does not uninstall Flatpak or Snap, and it does not delete their data. A decline is saved in `~/.config/groundwork/brave-repo-move-declined`.
 
 ### What the fixture tests do not prove
 
@@ -76,4 +76,11 @@ The tests stub `apt`, `dnf`, `zypper`, `sudo`, and `xdg-settings`. They do not i
 
 ### Remove Groundwork's Brave configuration
 
-Groundwork does not uninstall Brave. Remove the `brave-browser` package with your distribution's package manager, or remove `brave-bin` with the AUR helper. Delete `/etc/brave/policies/managed/groundwork.json` and `/usr/share/chromium/extensions/nngceckbapebfimnlniiiahkandclblb.json` to drop the policy and the extension offer. Delete the decline files in `~/.config/groundwork/` to be asked again. Brave's profile, and any Flatpak or Snap data, stay until you delete them yourself.
+Groundwork does not uninstall Brave. Remove the `brave-browser` package with your distribution's package manager, or remove `brave-bin` with the AUR helper. Delete `/etc/brave/policies/managed/groundwork.json` and `/usr/share/chromium/extensions/nngceckbapebfimnlniiiahkandclblb.json` to drop the policy and the extension offer. Also delete Brave's repository files, or apt, dnf, and zypper keep using that repository:
+
+- `/usr/share/keyrings/brave-browser-archive-keyring.gpg`
+- `/etc/apt/sources.list.d/brave-browser-release.sources`
+- `/etc/yum.repos.d/brave-browser.repo`
+- `/etc/zypp/repos.d/brave-browser.repo`
+
+Delete the decline files in `~/.config/groundwork/` to be asked again. Brave's profile, and any Flatpak or Snap data, stay until you delete them yourself.

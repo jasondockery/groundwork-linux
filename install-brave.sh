@@ -16,8 +16,10 @@ BRAVE_RPM_REPO_URL=https://brave-browser-rpm-release.s3.brave.com/brave-browser.
 usage() {
   echo "Usage: $0"
   echo "Install Brave from its official package repository and offer it as the default browser."
-  echo "Debian, Ubuntu, and Mint use Brave's apt repository. Fedora 41 and newer use dnf addrepo."
-  echo "Older Fedora and RHEL use dnf --add-repo. openSUSE uses zypper. Arch uses an AUR helper for brave-bin."
+  echo "Debian, Ubuntu, and Mint install curl when it is missing, then use Brave's apt repository."
+  echo "Fedora and RHEL install dnf-plugins-core, then add Brave's repo. Fedora 41 and newer use dnf addrepo."
+  echo "Older Fedora and RHEL use dnf --add-repo. openSUSE uses non-interactive zypper and imports the repo key."
+  echo "Arch uses an AUR helper for brave-bin."
   echo "Fedora Atomic prints the rpm-ostree commands and does not install. Other families print ${BRAVE_PAGE}."
   echo "Headless and WSL targets skip Brave. Omarchy is refused."
   echo "A terminal asks before installing, offering Bitwarden, or changing the default. The default answer is no."
@@ -364,18 +366,42 @@ write_root_file() {
   sudo_cmd install -D -o root -g root -m 0644 "$src" "$dest"
 }
 
+# Download as the user, then install the file as root only after curl succeeds.
+# A failed transfer deletes the temp file and the destination, including a
+# partial file left by an older run. A later success replaces the destination.
+fetch_root_file() {
+  local url="$1" dest="$2" tmp status
+  tmp="$(mktemp)" || return 1
+  curl --max-time 60 -fsSLo "$tmp" "$url"
+  status=$?
+  if [[ "$status" -ne 0 ]]; then
+    rm -f "$tmp"
+    sudo_cmd rm -f -- "$dest" || true
+    return 1
+  fi
+  if ! sudo_cmd install -D -o root -g root -m 0644 "$tmp" "$dest"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  rm -f "$tmp"
+}
+
 install_debian() {
   local key src
   key="$(root_path /usr/share/keyrings/brave-browser-archive-keyring.gpg)"
   src="$(root_path /etc/apt/sources.list.d/brave-browser-release.sources)"
-  if [[ ! -f "$key" ]]; then
-    sudo_cmd install -d -o root -g root -m 0755 "$(dirname "$key")" || return 1
-    sudo_cmd curl --max-time 60 -fsSLo "$key" "$BRAVE_APT_KEY_URL" || return 1
+  if ! command -v curl >/dev/null 2>&1; then
+    sudo_cmd DEBIAN_FRONTEND=noninteractive apt-get install -y curl || {
+      warn "curl is not installed, so Brave was not installed. Run: sudo apt install curl"
+      return 1
+    }
+    if ! command -v curl >/dev/null 2>&1; then
+      warn "curl is not installed, so Brave was not installed. Run: sudo apt install curl"
+      return 1
+    fi
   fi
-  if [[ ! -f "$src" ]]; then
-    sudo_cmd install -d -o root -g root -m 0755 "$(dirname "$src")" || return 1
-    sudo_cmd curl --max-time 60 -fsSLo "$src" "$BRAVE_APT_SOURCES_URL" || return 1
-  fi
+  fetch_root_file "$BRAVE_APT_KEY_URL" "$key" || return 1
+  fetch_root_file "$BRAVE_APT_SOURCES_URL" "$src" || return 1
   sudo_cmd apt update || return 1
   sudo_cmd DEBIAN_FRONTEND=noninteractive apt install -y brave-browser || return 1
 }
@@ -385,6 +411,10 @@ install_dnf() {
   form="$1"
   repo="$(root_path /etc/yum.repos.d/brave-browser.repo)"
   if [[ ! -f "$repo" && ! -f "$(state_dir)/brave-rpm-repo-added" ]]; then
+    sudo_cmd dnf install -y dnf-plugins-core || {
+      warn "dnf config-manager is not available, so Brave was not installed. Run: sudo dnf install dnf-plugins-core"
+      return 1
+    }
     if [[ "$form" == dnf5 ]]; then
       sudo_cmd dnf config-manager addrepo --from-repofile="$BRAVE_RPM_REPO_URL" || return 1
     else
@@ -399,10 +429,10 @@ install_opensuse() {
   local repo
   repo="$(root_path /etc/zypp/repos.d/brave-browser.repo)"
   if [[ ! -f "$repo" && ! -f "$(state_dir)/brave-rpm-repo-added" ]]; then
-    sudo_cmd zypper addrepo "$BRAVE_RPM_REPO_URL" || return 1
+    sudo_cmd zypper --non-interactive --gpg-auto-import-keys addrepo "$BRAVE_RPM_REPO_URL" || return 1
     mark_state brave-rpm-repo-added
   fi
-  sudo_cmd zypper --non-interactive install brave-browser || return 1
+  sudo_cmd zypper --non-interactive --gpg-auto-import-keys install brave-browser || return 1
 }
 
 install_arch() {
@@ -454,16 +484,16 @@ handle_repo_move() {
     note "Keeping the Brave install from ${label} and its data directory."
     return 1
   fi
-  prompt="Brave is installed from ${label}. Install the official package and keep that data directory?"
+  prompt="Brave from ${label} is a separate profile, and that copy stays installed. Install the official package? Bookmarks move only at brave://settings/importData. Passwords stay in Bitwarden."
   if [[ "${GROUNDWORK_UPDATE_SCOPE:-}" == maintenance ]] || ! interactive; then
-    note "Brave from ${label} is installed. To install the official package and keep that data directory, run $(retry_command) from a terminal."
+    note "Brave from ${label} is a separate profile, and that copy stays installed. To install the official package, run $(retry_command) from a terminal. Bookmarks move only at brave://settings/importData. Passwords stay in Bitwarden."
     return 1
   fi
   if confirm "$prompt"; then
     return 0
   elif [[ "$?" -eq 1 ]]; then
     mark_state brave-repo-move-declined
-    note "Keeping the Brave install from ${label} and its data directory."
+    note "Leaving the Brave install from ${label} in place. It is a separate profile. Bookmarks move only at brave://settings/importData. Passwords stay in Bitwarden."
   else
     note "Brave was left unchanged."
   fi
@@ -615,7 +645,7 @@ if [[ -n "$move_label" && "$brave_is_installed" -eq 0 ]]; then
     exit 0
   fi
 elif [[ -n "$move_label" ]]; then
-  note "Brave is also installed from ${move_label}. Groundwork left that copy and its data directory in place."
+  note "Brave is also installed from ${move_label}. That copy is a separate profile and stays installed. Bookmarks move only at brave://settings/importData. Passwords stay in Bitwarden."
 fi
 
 scope="${GROUNDWORK_UPDATE_SCOPE:-}"

@@ -104,7 +104,23 @@ elif name == 'sudo':
         pathlib.Path(dest).parent.mkdir(parents=True, exist_ok=True)
         pathlib.Path(dest).write_text(url + '\n')
         raise SystemExit(0)
-    if body[:1] == ['apt']:
+    if body[:1] == ['rm']:
+        for token in body[1:]:
+            if token.startswith('-'):
+                continue
+            path = pathlib.Path(token)
+            if path.is_file() or path.is_symlink():
+                path.unlink()
+        raise SystemExit(0)
+    if body[:1] in (['apt'], ['apt-get']):
+        if os.environ.get('FIXTURE_APT_CURL_FAIL') == '1' and 'curl' in body:
+            raise SystemExit(1)
+        if 'install' in body and 'curl' in body and 'brave-browser' not in body:
+            bindir = pathlib.Path(os.environ['PATH'].split(':')[0])
+            curl = bindir / 'curl'
+            if not curl.exists():
+                curl.symlink_to(bindir / 'stub')
+            raise SystemExit(0)
         if 'install' in body:
             ensure_binary()
         elif body[1:2] != ['update']:
@@ -113,6 +129,8 @@ elif name == 'sudo':
     if body[:1] == ['dnf']:
         if 'addrepo' in body or '--add-repo' in body:
             ensure_repo('etc/yum.repos.d/brave-browser.repo')
+            raise SystemExit(0)
+        if 'install' in body and 'dnf-plugins-core' in body and 'brave-browser' not in body:
             raise SystemExit(0)
         if 'install' in body:
             ensure_binary()
@@ -127,6 +145,27 @@ elif name == 'sudo':
             raise SystemExit(0)
         raise SystemExit('unexpected zypper')
     raise SystemExit('unexpected sudo')
+elif name == 'curl':
+    dest = url = None
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == '--max-time':
+            index += 2
+            continue
+        if token == '-fsSLo':
+            dest = args[index + 1]
+            index += 2
+            continue
+        if token.startswith('https://'):
+            url = token
+        index += 1
+    pathlib.Path(dest).parent.mkdir(parents=True, exist_ok=True)
+    if os.environ.get('FIXTURE_CURL_EXIT') == '28':
+        pathlib.Path(dest).write_text('short\n')
+        raise SystemExit(28)
+    pathlib.Path(dest).write_text((url or '') + '\n')
+    raise SystemExit(0)
 elif name == 'xdg-settings':
     state = root / 'default-browser'
     if args[:2] == ['get', 'default-web-browser']:
@@ -182,7 +221,7 @@ class BraveInstallTests(unittest.TestCase):
         stub = self.bin / 'stub'
         stub.write_text(STUB)
         stub.chmod(0o755)
-        for name in ('uname', 'sudo', 'xdg-settings', 'flatpak', 'snap'):
+        for name in ('uname', 'sudo', 'xdg-settings', 'flatpak', 'snap', 'curl'):
             (self.bin / name).symlink_to(stub)
         for name in ('grep', 'head', 'bash', 'python3', 'mktemp', 'cmp', 'rm', 'mkdir', 'dirname'):
             (self.bin / name).symlink_to(shutil.which(name))
@@ -200,7 +239,8 @@ class BraveInstallTests(unittest.TestCase):
         for key in ('WAYLAND_DISPLAY', 'WSL_DISTRO_NAME', 'WSL_INTEROP',
                     'GROUNDWORK_UPDATE_SCOPE', 'XDG_CONFIG_HOME', 'GROUNDWORK_BRAVE_SPEC',
                     'FIXTURE_OS', 'FIXTURE_DEFAULT_BROWSER', 'FIXTURE_SUDO_NONINTERACTIVE',
-                    'FIXTURE_SUDO_PASSWORD', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
+                    'FIXTURE_SUDO_PASSWORD', 'FIXTURE_CURL_EXIT', 'FIXTURE_APT_CURL_FAIL',
+                    'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
             self.env.pop(key, None)
 
     def write_os_release(self, **fields):
@@ -356,14 +396,60 @@ class BraveInstallTests(unittest.TestCase):
             with self.subTest(fields=fields):
                 self.reset_install_state()
                 self.write_os_release(**fields)
+                key_path = self.root / 'usr/share/keyrings/brave-browser-archive-keyring.gpg'
+                key_path.parent.mkdir(parents=True)
+                key_path.write_text('stale\n')
                 self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
-                key = str(self.root / 'usr/share/keyrings/brave-browser-archive-keyring.gpg')
-                sources = str(self.root / 'etc/apt/sources.list.d/brave-browser-release.sources')
-                self.assertIn(['curl', '--max-time', '60', '-fsSLo', key, KEY_URL], self.sudo_calls())
-                self.assertIn(['curl', '--max-time', '60', '-fsSLo', sources, SOURCES_URL], self.sudo_calls())
+                curl_calls = [call for call in self.calls() if call[0] == 'curl']
+                self.assertTrue(any(
+                    call[1:4] == ['--max-time', '60', '-fsSLo'] and call[-1] == KEY_URL
+                    for call in curl_calls))
+                self.assertTrue(any(call[-1] == SOURCES_URL for call in curl_calls))
                 self.assertIn(['DEBIAN_FRONTEND=noninteractive', 'apt', 'install', '-y', 'brave-browser'],
                               self.sudo_calls())
-                self.assertEqual((self.root / 'usr/share/keyrings/brave-browser-archive-keyring.gpg').read_text().strip(), KEY_URL)
+                self.assertEqual(key_path.read_text().strip(), KEY_URL)
+                self.assertNotIn('stale', key_path.read_text())
+
+    def test_debian_installs_curl_before_the_keyring_when_curl_is_missing(self):
+        (self.bin / 'curl').unlink()
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+        apt_curl = key_curl = None
+        for index, call in enumerate(self.calls()):
+            if call[0] == 'sudo' and 'apt-get' in call and 'curl' in call:
+                apt_curl = index
+            if call[0] == 'curl' and call[-1] == KEY_URL:
+                key_curl = index
+                break
+        self.assertIsNotNone(apt_curl)
+        self.assertIsNotNone(key_curl)
+        self.assertLess(apt_curl, key_curl)
+        self.assertIn(['DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y', 'curl'],
+                      self.sudo_calls())
+        self.assertTrue((self.bin / 'curl').exists())
+
+    def test_curl_install_failure_names_the_apt_command(self):
+        (self.bin / 'curl').unlink()
+        self.env['FIXTURE_APT_CURL_FAIL'] = '1'
+        result = self.run_pty([(b'[y/N]', 'y')])
+        self.assertIn('sudo apt install curl', result)
+        self.assertEqual([call for call in self.calls() if call[0] == 'curl'], [])
+        self.assertFalse((self.root / 'usr/share/keyrings/brave-browser-archive-keyring.gpg').exists())
+        self.assertFalse((self.root / 'usr/bin/brave-browser').exists())
+
+    def test_partial_keyring_download_is_removed_and_retried(self):
+        key = self.root / 'usr/share/keyrings/brave-browser-archive-keyring.gpg'
+        key.parent.mkdir(parents=True)
+        key.write_text('short\n')
+        self.env['FIXTURE_CURL_EXIT'] = '28'
+        self.run_pty([(b'[y/N]', 'y')])
+        self.assertFalse(key.exists())
+        self.assertTrue(any(call[0] == 'curl' and call[-1] == KEY_URL for call in self.calls()))
+        self.assertIn(['rm', '-f', '--', str(key)], self.sudo_calls())
+        self.reset_calls()
+        self.run_pty([(b'[y/N]', 'y')])
+        self.assertFalse(key.exists())
+        self.assertTrue(any(call[0] == 'curl' and call[-1] == KEY_URL for call in self.calls()))
+        self.assertFalse((self.root / 'usr/bin/brave-browser').exists())
 
     def test_fedora_rhel_and_opensuse_write_the_brave_repo(self):
         cases = (
@@ -374,7 +460,7 @@ class BraveInstallTests(unittest.TestCase):
             ({'ID': 'rhel', 'VERSION_ID': '"9.4"', 'ID_LIKE': 'fedora'},
              ['dnf', 'config-manager', '--add-repo', RPM_URL]),
             ({'ID': 'opensuse-tumbleweed', 'ID_LIKE': '"suse opensuse"'},
-             ['zypper', 'addrepo', RPM_URL]),
+             ['zypper', '--non-interactive', '--gpg-auto-import-keys', 'addrepo', RPM_URL]),
         )
         for fields, expected in cases:
             with self.subTest(fields=fields):
@@ -382,8 +468,17 @@ class BraveInstallTests(unittest.TestCase):
                 self.write_os_release(**fields)
                 self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
                 binary = self.root / 'usr' / 'bin' / 'brave-browser'
-                self.assertIn(expected, self.sudo_calls())
+                calls = self.sudo_calls()
+                self.assertIn(expected, calls)
                 self.assertTrue(binary.exists())
+                if fields['ID'] == 'opensuse-tumbleweed':
+                    self.assertIn(
+                        ['zypper', '--non-interactive', '--gpg-auto-import-keys', 'install', 'brave-browser'],
+                        calls)
+                else:
+                    plugin = ['dnf', 'install', '-y', 'dnf-plugins-core']
+                    self.assertIn(plugin, calls)
+                    self.assertLess(calls.index(plugin), calls.index(expected))
 
     def test_arch_uses_an_aur_helper_or_prints_the_command(self):
         self.write_os_release(ID='arch')
@@ -480,6 +575,28 @@ class BraveInstallTests(unittest.TestCase):
         self.env['GROUNDWORK_BRAVE_SPEC'] = str(self.root / 'missing-spec.json')
         self.run_script(status=1)
 
+    def test_forced_extension_refuses_the_spec(self):
+        spec = {
+            'schemaVersion': 1,
+            'default': {'id': 'brave', 'channel': 'release',
+                        'desktopIds': {'linux': DESKTOP_ID}},
+            'policies': [],
+            'extensions': [{
+                'name': 'Bitwarden',
+                'id': BITWARDEN,
+                'install': 'force',
+                'updateUrl': 'https://clients2.google.com/service/update2/crx',
+            }],
+        }
+        path = self.root / 'forced-spec.json'
+        path.write_text(json.dumps(spec))
+        self.env['GROUNDWORK_BRAVE_SPEC'] = str(path)
+        result = self.run_script(status=1)
+        self.assertIn('never forced', result.stderr)
+        self.assertEqual(self.sudo_calls(), [])
+        self.assertFalse(self.extension_path().exists())
+        self.assertFalse(self.policy_path().exists())
+
     def test_default_offer_accepted_declined_and_notice(self):
         accepted = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'y')])
         self.assertIn('now the default browser', accepted)
@@ -535,7 +652,10 @@ class BraveInstallTests(unittest.TestCase):
         data.mkdir()
         (data / 'profile').write_text('keep\n')
         declined = self.run_pty([(b'[y/N]', 'n')])
-        self.assertIn('keep that data directory', declined.lower())
+        self.assertIn('separate profile', declined.lower())
+        self.assertIn('stays installed', declined.lower())
+        self.assertIn('brave://settings/importData', declined)
+        self.assertIn('Passwords stay in Bitwarden', declined)
         self.assertTrue(self.state_path('brave-repo-move-declined').is_file())
         self.assertEqual((data / 'profile').read_text(), 'keep\n')
         self.assertFalse(any('uninstall' in call or 'remove' in call for call in self.calls()))
