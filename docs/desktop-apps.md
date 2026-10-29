@@ -54,11 +54,11 @@ Brave publishes amd64 and arm64 packages. After you confirm, the package command
 
 The install needs administrator permission for the repository, the package, and the policy file. When a terminal is present, Groundwork asks once. The default is no. With no terminal, Groundwork writes nothing and does not record the install as done. Run `install-brave.sh` from a terminal to retry.
 
-`groundwork-update` (configuration-only) installs Brave when it is missing and leaves an installed Brave alone. `update-all` does not upgrade Brave. It installs Brave only when administrator permission is already available without a prompt, rewrites the policy file when the rendered policy changed, and prints at most one default-browser notice. It does not ask.
+`groundwork-update` (configuration-only) installs Brave when it is missing and a terminal can ask, and leaves an installed Brave alone. `update-all` does not install or upgrade Brave. With no terminal it prints one notice and leaves Brave uninstalled. When Brave is already installed, it rewrites the policy file when the rendered policy changed and prints at most one default-browser notice. It does not ask.
 
 ### Default browser
 
-When Brave is installed and `xdg-settings get default-web-browser` is not `brave-browser.desktop`, an interactive apply asks `Make Brave the default browser? [y/N]`. Yes runs `xdg-settings set default-web-browser brave-browser.desktop`. No is saved in `~/.config/groundwork/brave-default-declined`. Delete that file to be asked again. `update-all`, and any run without a terminal, print one notice with that command and do not change the default.
+When Brave is installed and `xdg-settings get default-web-browser` is not `brave-browser.desktop`, an interactive apply asks `Make Brave the default browser? [y/N]`. Yes runs `xdg-settings set default-web-browser brave-browser.desktop`. No is saved in `~/.config/groundwork/brave-default-declined`. Delete that file to be asked again. `update-all`, and any run without a terminal, print at most one notice with that command and do not change the default. A saved decline prints nothing.
 
 ### Policies and Bitwarden
 
@@ -76,7 +76,7 @@ The tests stub `apt`, `dnf`, `zypper`, `sudo`, and `xdg-settings`. They do not i
 
 ### Remove Groundwork's Brave configuration
 
-Groundwork does not uninstall Brave. Remove the `brave-browser` package with your distribution's package manager, or remove `brave-bin` with the AUR helper. Delete `/etc/brave/policies/managed/groundwork.json` and `/usr/share/chromium/extensions/nngceckbapebfimnlniiiahkandclblb.json` to drop the policy and the extension offer. Also delete Brave's repository files, or apt, dnf, and zypper keep using that repository:
+Groundwork does not uninstall Brave. Remove the `brave-browser` package with your distribution's package manager, or remove `brave-bin` with the AUR helper. Delete `/etc/brave/policies/managed/groundwork.json` and `/usr/share/chromium/extensions/nngceckbapebfimnlniiiahkandclblb.json` to drop the policy and the extension offer. While Brave stays installed, the next apply rewrites `groundwork.json` when the rendered policy is missing or changed. Dropping the offer also requires deleting `~/.config/groundwork/brave-extension-accepted`, or that apply writes the offer file again without asking. Also delete Brave's repository files, or apt, dnf, and zypper keep using that repository:
 
 - `/usr/share/keyrings/brave-browser-archive-keyring.gpg`
 - `/etc/apt/sources.list.d/brave-browser-release.sources`
@@ -84,4 +84,4 @@ Groundwork does not uninstall Brave. Remove the `brave-browser` package with you
 - `/etc/zypp/repos.d/brave-browser.repo`
 - `~/.config/groundwork/brave-rpm-repo-added`
 
-That last file recorded that the rpm or zypp repository was added. Delete it with the repo file. If the repo file is already gone, the next install removes the marker and adds the repository again. Delete the decline files in `~/.config/groundwork/` to be asked again. Brave's profile, and any Flatpak or Snap data, stay until you delete them yourself.
+`brave-rpm-repo-added` is not a gate. The installer does not read it. Delete it with the repo file if an older run left it behind. If the repo file is already gone, the next install removes that marker and adds the repository again. Delete the decline files in `~/.config/groundwork/` to be asked again. Brave's profile, and any Flatpak or Snap data, stay until you delete them yourself.

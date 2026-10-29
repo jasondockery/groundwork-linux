@@ -23,7 +23,7 @@ usage() {
   echo "Fedora Atomic prints the rpm-ostree commands and does not install. Other families print ${BRAVE_PAGE}."
   echo "Headless and WSL targets skip Brave. Omarchy is refused."
   echo "A terminal asks before installing, offering Bitwarden, or changing the default. The default answer is no."
-  echo "update-all does not upgrade Brave and does not ask. The distribution updates Brave from Brave's repository."
+  echo "update-all does not install or upgrade Brave and does not ask. The distribution updates an installed Brave."
 }
 
 for arg in "$@"; do
@@ -379,6 +379,11 @@ fetch_root_file() {
     rm -f "$tmp"
     return 1
   fi
+  if ! download_is_usable "$url" "$tmp"; then
+    rm -f "$tmp"
+    warn "The download from ${url} was not usable, so it was not installed."
+    return 1
+  fi
   if ! sudo_cmd install -D -o root -g root -m 0644 "$tmp" "$dest"; then
     rm -f "$tmp"
     return 1
@@ -386,8 +391,24 @@ fetch_root_file() {
   rm -f "$tmp"
 }
 
-# A non-empty repo file is the record that Brave's repo was added. A missing
-# or empty file is not. Drop the marker either way so the next add can run.
+# A non-empty temp file is required. The key must be an OpenPGP keyring.
+# The sources file must name Brave's Signed-By path. Anything else is discarded.
+download_is_usable() {
+  local url="$1" file="$2"
+  [[ -s "$file" ]] || return 1
+  if [[ "$url" == "$BRAVE_APT_KEY_URL" ]]; then
+    gpg --batch --show-keys "$file" >/dev/null 2>&1
+    return
+  fi
+  if [[ "$url" == "$BRAVE_APT_SOURCES_URL" ]]; then
+    grep -F -q 'Signed-By:' "$file" || return 1
+    grep -F -q '/usr/share/keyrings/brave-browser-archive-keyring.gpg' "$file"
+    return
+  fi
+}
+
+# A non-empty repo file is the only gate. brave-rpm-repo-added is not read.
+# Remove that leftover marker when the file is missing or empty.
 prepare_rpm_repo() {
   local repo="$1"
   RPM_REPO_READY=0
@@ -668,6 +689,11 @@ fi
 scope="${GROUNDWORK_UPDATE_SCOPE:-}"
 if [[ "$scope" == configuration && "$brave_is_installed" -eq 1 ]]; then
   note "Configuration-only apply: keeping the installed Brave."
+  exit 0
+fi
+
+if [[ "$scope" == maintenance && "$brave_is_installed" -eq 0 ]]; then
+  note "Brave is not installed. To install it, run $(retry_command) from a terminal."
   exit 0
 fi
 

@@ -170,8 +170,26 @@ elif name == 'curl':
     if os.environ.get('FIXTURE_CURL_EXIT') == '28':
         pathlib.Path(dest).write_text('short\n')
         raise SystemExit(28)
-    pathlib.Path(dest).write_text((url or '') + '\n')
+    body = os.environ.get('FIXTURE_CURL_BODY', '')
+    if body == 'html':
+        pathlib.Path(dest).write_text('<html>captive portal</html>\n')
+    elif body == 'empty':
+        pathlib.Path(dest).write_text('')
+    elif url and 'keyring.gpg' in url:
+        pathlib.Path(dest).write_text('-----BEGIN PGP PUBLIC KEY BLOCK-----\n')
+    elif url and url.endswith('.sources'):
+        pathlib.Path(dest).write_text(
+            'Signed-By: /usr/share/keyrings/brave-browser-archive-keyring.gpg\n')
+    else:
+        pathlib.Path(dest).write_text((url or '') + '\n')
     raise SystemExit(0)
+elif name == 'gpg':
+    if '--show-keys' in args:
+        data = pathlib.Path(args[-1]).read_bytes()
+        if b'BEGIN PGP PUBLIC KEY BLOCK' in data and b'<html' not in data.lower():
+            raise SystemExit(0)
+        raise SystemExit(1)
+    raise SystemExit('unexpected gpg')
 elif name == 'xdg-settings':
     state = root / 'default-browser'
     if args[:2] == ['get', 'default-web-browser']:
@@ -227,7 +245,7 @@ class BraveInstallTests(unittest.TestCase):
         stub = self.bin / 'stub'
         stub.write_text(STUB)
         stub.chmod(0o755)
-        for name in ('uname', 'sudo', 'xdg-settings', 'flatpak', 'snap', 'curl'):
+        for name in ('uname', 'sudo', 'xdg-settings', 'flatpak', 'snap', 'curl', 'gpg'):
             (self.bin / name).symlink_to(stub)
         for name in ('grep', 'head', 'bash', 'python3', 'mktemp', 'cmp', 'rm', 'mkdir', 'dirname'):
             (self.bin / name).symlink_to(shutil.which(name))
@@ -246,7 +264,7 @@ class BraveInstallTests(unittest.TestCase):
                     'GROUNDWORK_UPDATE_SCOPE', 'XDG_CONFIG_HOME', 'GROUNDWORK_BRAVE_SPEC',
                     'FIXTURE_OS', 'FIXTURE_DEFAULT_BROWSER', 'FIXTURE_SUDO_NONINTERACTIVE',
                     'FIXTURE_SUDO_PASSWORD', 'FIXTURE_CURL_EXIT', 'FIXTURE_CURL_HOLD',
-                    'FIXTURE_APT_CURL_FAIL',
+                    'FIXTURE_CURL_BODY', 'FIXTURE_APT_CURL_FAIL',
                     'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
             self.env.pop(key, None)
 
@@ -414,8 +432,11 @@ class BraveInstallTests(unittest.TestCase):
                 self.assertTrue(any(call[-1] == SOURCES_URL for call in curl_calls))
                 self.assertIn(['DEBIAN_FRONTEND=noninteractive', 'apt', 'install', '-y', 'brave-browser'],
                               self.sudo_calls())
-                self.assertEqual(key_path.read_text().strip(), KEY_URL)
+                self.assertIn('BEGIN PGP PUBLIC KEY BLOCK', key_path.read_text())
                 self.assertNotIn('stale', key_path.read_text())
+                sources_path = self.root / 'etc/apt/sources.list.d/brave-browser-release.sources'
+                self.assertIn('Signed-By: /usr/share/keyrings/brave-browser-archive-keyring.gpg',
+                              sources_path.read_text())
 
     def test_debian_installs_curl_before_the_keyring_when_curl_is_missing(self):
         (self.bin / 'curl').unlink()
@@ -463,8 +484,9 @@ class BraveInstallTests(unittest.TestCase):
         self.env.pop('FIXTURE_CURL_EXIT')
         self.reset_calls()
         self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
-        self.assertEqual(key.read_text().strip(), KEY_URL)
-        self.assertEqual(sources.read_text().strip(), SOURCES_URL)
+        self.assertIn('BEGIN PGP PUBLIC KEY BLOCK', key.read_text())
+        self.assertIn('Signed-By: /usr/share/keyrings/brave-browser-archive-keyring.gpg',
+                      sources.read_text())
         self.assertTrue((self.root / 'usr/bin/brave-browser').exists())
 
     def test_ctrl_c_during_download_removes_the_temp_file(self):
@@ -475,6 +497,24 @@ class BraveInstallTests(unittest.TestCase):
         self.assertFalse(temp.exists())
         self.assertFalse(temp.parent.exists())
         self.assertFalse((self.root / 'usr/share/keyrings/brave-browser-archive-keyring.gpg').exists())
+
+    def test_unusable_download_does_not_replace_a_keyring(self):
+        key = self.root / 'usr/share/keyrings/brave-browser-archive-keyring.gpg'
+        sources = self.root / 'etc/apt/sources.list.d/brave-browser-release.sources'
+        key.parent.mkdir(parents=True)
+        sources.parent.mkdir(parents=True)
+        for body in ('html', 'empty'):
+            with self.subTest(body=body):
+                key.write_text('good-keyring\n')
+                sources.write_text('good-sources\n')
+                self.env['FIXTURE_CURL_BODY'] = body
+                self.reset_calls()
+                self.run_pty([(b'[y/N]', 'y')])
+                self.assertEqual(key.read_text(), 'good-keyring\n')
+                self.assertEqual(sources.read_text(), 'good-sources\n')
+                self.assertFalse((self.root / 'usr/bin/brave-browser').exists())
+                self.assertFalse(any(
+                    call[:2] == ['install', '-D'] and str(key) in call for call in self.sudo_calls()))
 
     def test_fedora_rhel_and_opensuse_write_the_brave_repo(self):
         cases = (
@@ -544,9 +584,7 @@ class BraveInstallTests(unittest.TestCase):
         repo.write_text('repo\n')
         self.state_path('brave-rpm-repo-added').parent.mkdir(parents=True)
         self.state_path('brave-rpm-repo-added').write_text('old\n')
-        self.env['FIXTURE_SUDO_NONINTERACTIVE'] = '1'
-        self.env['GROUNDWORK_UPDATE_SCOPE'] = 'maintenance'
-        self.run_script()
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
         calls = self.sudo_calls()
         self.assertFalse(any('addrepo' in call or '--add-repo' in call for call in calls))
         self.assertTrue(any('dnf' in call and 'brave-browser' in call for call in calls))
@@ -748,7 +786,7 @@ class BraveInstallTests(unittest.TestCase):
         self.assertEqual((data / 'profile').read_text(), 'keep\n')
         self.assertFalse(any('uninstall' in call for call in self.calls()))
 
-    def test_configuration_keeps_an_installed_brave_and_maintenance_can_install(self):
+    def test_configuration_keeps_an_installed_brave_and_maintenance_does_not_install(self):
         self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
         self.reset_calls()
         self.env['GROUNDWORK_UPDATE_SCOPE'] = 'configuration'
@@ -758,14 +796,24 @@ class BraveInstallTests(unittest.TestCase):
         self.env['GROUNDWORK_UPDATE_SCOPE'] = 'maintenance'
         self.env['FIXTURE_SUDO_NONINTERACTIVE'] = '1'
         binary = self.root / 'usr' / 'bin' / 'brave-browser'
+        self.policy_path().unlink()
+        self.reset_calls()
+        rewritten = self.run_script()
+        self.assertTrue(self.policy_path().exists())
+        self.assertTrue(binary.exists())
+        self.assertEqual([call for call in self.sudo_calls() if 'apt' in call and 'install' in call], [])
+        self.assertNotIn('[y/N]', rewritten.stdout + rewritten.stderr)
         binary.unlink()
         self.policy_path().unlink()
         self.reset_calls()
-        installed = self.run_script()
-        self.assertIn('Installed Brave', installed.stdout)
-        self.assertTrue(binary.exists())
-        self.assertTrue(self.policy_path().exists())
-        self.assertNotIn('[y/N]', installed.stdout + installed.stderr)
+        deferred = self.run_script()
+        self.assertIn('Brave is not installed.', deferred.stdout)
+        self.assertNotIn('Installed Brave', deferred.stdout)
+        self.assertFalse(binary.exists())
+        self.assertFalse(self.policy_path().exists())
+        self.assertEqual(self.sudo_calls(), [])
+        self.assertFalse(any(call[0] == 'curl' for call in self.calls()))
+        self.assertNotIn('[y/N]', deferred.stdout + deferred.stderr)
 
     def test_prompt_eof_invalid_entry_and_ctrl_c(self):
         eof = self.run_pty([(b'[y/N]', 'EOF')])
@@ -778,6 +826,13 @@ class BraveInstallTests(unittest.TestCase):
         self.run_pty([(b'[y/N]', 'CTRL-C')], status=130)
         self.assertFalse(self.policy_path().exists())
         self.assertFalse((self.root / 'usr' / 'bin' / 'brave-browser').exists())
+        self.reset_calls()
+        default_eof = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'EOF')])
+        self.assertIn('was not changed', default_eof)
+        self.assertFalse(self.state_path('brave-default-declined').exists())
+        self.assertNotIn(
+            ['set', 'default-web-browser', DESKTOP_ID],
+            [call[1:] for call in self.calls() if call[0] == 'xdg-settings'])
 
     def test_sudo_password_prompt_is_announced_before_sudo_reads(self):
         self.env['FIXTURE_SUDO_PASSWORD'] = '1'

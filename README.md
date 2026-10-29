@@ -27,9 +27,10 @@ On a Linux desktop, `update-all` also installs or updates FreeTube, the Flathub
 user Flatpak `io.freetubeapp.FreeTube`. `groundwork-update` installs that
 Flatpak when it is missing and leaves an existing install unchanged. The same
 apply offers Brave from Brave's official package repository. `update-all` does
-not upgrade Brave; the distribution's updater does, from that repository. It
-can install Brave when administrator permission is already available, rewrite
-Brave's managed policies when they changed, and print one default-browser
+not install or upgrade Brave. The distribution's updater upgrades an installed
+Brave from that repository. With no terminal, `update-all` prints one notice
+and leaves Brave uninstalled. When Brave is already installed, it rewrites
+managed policies when they changed and prints at most one default-browser
 notice. It does not ask questions. See [desktop apps](docs/desktop-apps.md).
 
 Both commands belong to the visible `groundwork-mac` engine checkout selected
