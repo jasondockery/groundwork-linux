@@ -6,7 +6,7 @@ ENGINE_DESKTOP_HOOK=home/run_after_33-groundwork-linux-desktop-apps.sh
 usage() {
   echo "Usage: $0 [--prepare-only]"
   echo "Prepare the shared Groundwork engine, then run its Linux setup."
-  echo "On a Linux desktop, setup registers a FreeTube Flatpak apply hook."
+  echo "On a Linux desktop, setup registers an apply hook for FreeTube and Brave."
   echo "--prepare-only clones the engine and prints preview steps without applying it."
 }
 
@@ -22,19 +22,30 @@ ignore_engine_desktop_hook() {
 }
 
 install_linux_desktop_apps() {
-  local script_dir helper hook_src hook_dest
+  local script_dir helper brave_helper spec_src spec_dest hook_src hook_dest lib
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  helper="${HOME}/.local/lib/groundwork-linux/install-desktop-apps.sh"
-  mkdir -p "$(dirname "$helper")"
+  lib="${HOME}/.local/lib/groundwork-linux"
+  mkdir -p "$lib"
+  helper="${lib}/install-desktop-apps.sh"
+  brave_helper="${lib}/install-brave.sh"
+  spec_src="${script_dir}/core/browser/brave.json"
+  spec_dest="${lib}/brave.json"
+  if [[ ! -f "$spec_src" ]]; then
+    echo "The core submodule is missing browser/brave.json. Run git submodule update --init core, then rerun this entry point." >&2
+    exit 1
+  fi
   cp "${script_dir}/install-desktop-apps.sh" "$helper"
-  chmod 755 "$helper"
+  cp "${script_dir}/install-brave.sh" "$brave_helper"
+  cp "$spec_src" "$spec_dest"
+  chmod 755 "$helper" "$brave_helper"
+  chmod 644 "$spec_dest"
   hook_src="${script_dir}/engine-hooks/run_after_33-groundwork-linux-desktop-apps.sh"
   hook_dest="${engine_dir}/${ENGINE_DESKTOP_HOOK}"
   mkdir -p "$(dirname "$hook_dest")"
   cp "$hook_src" "$hook_dest"
   chmod 755 "$hook_dest"
   ignore_engine_desktop_hook
-  printf 'Registered the FreeTube apply hook at %s\n' "$hook_dest"
+  printf 'Registered the Linux desktop apply hook at %s\n' "$hook_dest"
 }
 
 prepare_only=0
@@ -73,7 +84,7 @@ if [[ -e $engine_dir ]]; then
   fi
   if [[ "$engine_status" == "?? $ENGINE_DESKTOP_HOOK" ]]; then
     ignore_engine_desktop_hook
-    echo "Groundwork: ignoring the local FreeTube engine hook so the engine checkout stays clean."
+    echo "Groundwork: ignoring the local Linux desktop engine hook so the engine checkout stays clean."
     if ! engine_status=$(git -C "$engine_dir" status --porcelain); then
       echo "Cannot inspect the engine's Git status. Repair it before setup." >&2
       exit 1
@@ -93,7 +104,7 @@ if [[ $prepare_only -eq 1 ]]; then
   exit 0
 fi
 
-# Register the FreeTube hook before apply so this run and later update-all runs
+# Register the desktop hook before apply so this run and later update-all runs
 # execute it. chezmoi apply is what update-all uses for declared tools.
 install_linux_desktop_apps
 exec chezmoi --source "$engine_dir" init --apply

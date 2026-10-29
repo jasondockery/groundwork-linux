@@ -6,7 +6,7 @@ The existing shared provisioning implementation currently lives in `groundwork-m
 
 ## Setup
 
-Clone this repo over HTTPS into a new directory; keep an old Groundwork checkout in place. Install Git and chezmoi through their supported OS sources first. A Linux desktop also needs Flatpak from the distribution (Ubuntu/Debian: `sudo apt install flatpak`) so setup can install FreeTube. Headless and WSL targets skip that app. Read `bootstrap.sh`, then run `bash bootstrap.sh` on Linux. For an existing installation, use [migration](docs/migration.md) instead so you can preview the new source before applying it.
+Clone this repo over HTTPS into a new directory; keep an old Groundwork checkout in place. Install Git and chezmoi through their supported OS sources first. Run `git submodule update --init core` so setup can read the Brave spec in groundwork-core v0.7.0. A Linux desktop also needs Flatpak from the distribution (Ubuntu/Debian: `sudo apt install flatpak`) so setup can install FreeTube, and administrator permission when you choose to install Brave. Headless and WSL targets skip those apps. Read `bootstrap.sh`, then run `bash bootstrap.sh` on Linux. For an existing installation, use [migration](docs/migration.md) instead so you can preview the new source before applying it.
 
 `GROUNDWORK_ENGINE_DIR` selects the shared engine checkout, defaulting to `~/code/groundwork-mac`. `GROUNDWORK_REPO_URL` selects its Git URL, defaulting to `https://github.com/jasondockery/groundwork-mac.git`. Public HTTPS access needs no GitHub login. If your existing engine uses SSH, set this variable to that exact origin URL before running the wrapper; its remote is preserved. Existing engine checkouts must match that URL and be clean. The engine's own platform checks and installation requirements remain authoritative; this wrapper does not broaden supported architectures or desktop promises.
 
@@ -25,8 +25,12 @@ Use `groundwork-configure` to change preferences.
 
 On a Linux desktop, `update-all` also installs or updates FreeTube, the Flathub
 user Flatpak `io.freetubeapp.FreeTube`. `groundwork-update` installs that
-Flatpak when it is missing and leaves an existing install unchanged. See
-[desktop apps](docs/desktop-apps.md).
+Flatpak when it is missing and leaves an existing install unchanged. The same
+apply offers Brave from Brave's official package repository. `update-all` does
+not upgrade Brave; the distribution's updater does, from that repository. It
+can install Brave when administrator permission is already available, rewrite
+Brave's managed policies when they changed, and print one default-browser
+notice. It does not ask questions. See [desktop apps](docs/desktop-apps.md).
 
 Both commands belong to the visible `groundwork-mac` engine checkout selected
 during setup. This entry-point checkout contains setup guidance, not applied
@@ -43,7 +47,9 @@ explains the boundary.
 
 ## Desktop apps
 
-Linux desktops install [FreeTube](https://freetubeapp.io/) by default: a private YouTube client with no Google sign-in. The package is the Flathub user Flatpak `io.freetubeapp.FreeTube`. Desktop Macs get the official pinned FreeTube disk image from the shared engine. Homebrew disabled the `freetube` cask, so the engine does not declare it. Linux and WSL never receive that disk image. This repository installs the Linux Flatpak and skips it on headless and WSL targets. Groundwork writes no FreeTube settings. See [desktop apps](docs/desktop-apps.md).
+Linux desktops install [FreeTube](https://freetubeapp.io/) by default: a private YouTube client with no Google sign-in. The package is the Flathub user Flatpak `io.freetubeapp.FreeTube`. Desktop Macs get the official pinned FreeTube disk image from the shared engine. Homebrew disabled the `freetube` cask, so the engine does not declare it. Linux and WSL never receive that disk image. This repository installs the Linux Flatpak and skips it on headless and WSL targets. Groundwork writes no FreeTube settings.
+
+The same desktops offer [Brave](https://brave.com/linux/) from Brave's official package repository and can make it the default browser with `xdg-settings` after you say yes. Policies and the Bitwarden offer are rendered from groundwork-core v0.7.0 (`core/browser/brave.json`). Groundwork does not uninstall another browser or delete profile data. See [desktop apps](docs/desktop-apps.md).
 
 ## License
 
