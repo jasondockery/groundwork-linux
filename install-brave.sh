@@ -366,17 +366,17 @@ write_root_file() {
   sudo_cmd install -D -o root -g root -m 0644 "$src" "$dest"
 }
 
-# Download as the user, then install the file as root only after curl succeeds.
-# A failed transfer deletes the temp file and the destination, including a
-# partial file left by an older run. A later success replaces the destination.
+# Download into $work, which the EXIT trap removes, including after Ctrl+C.
+# A failed transfer deletes only that temp file. An existing destination stays
+# until curl exits 0 and install replaces it.
 fetch_root_file() {
   local url="$1" dest="$2" tmp status
-  tmp="$(mktemp)" || return 1
+  [[ -n "$work" && -d "$work" ]] || return 1
+  tmp="$(mktemp "${work}/download.XXXXXX")" || return 1
   curl --max-time 60 -fsSLo "$tmp" "$url"
   status=$?
   if [[ "$status" -ne 0 ]]; then
     rm -f "$tmp"
-    sudo_cmd rm -f -- "$dest" || true
     return 1
   fi
   if ! sudo_cmd install -D -o root -g root -m 0644 "$tmp" "$dest"; then
@@ -384,6 +384,21 @@ fetch_root_file() {
     return 1
   fi
   rm -f "$tmp"
+}
+
+# A non-empty repo file is the record that Brave's repo was added. A missing
+# or empty file is not. Drop the marker either way so the next add can run.
+prepare_rpm_repo() {
+  local repo="$1"
+  RPM_REPO_READY=0
+  if [[ -s "$repo" ]]; then
+    RPM_REPO_READY=1
+    return 0
+  fi
+  rm -f "$(state_dir)/brave-rpm-repo-added"
+  if [[ -e "$repo" ]]; then
+    sudo_cmd rm -f -- "$repo" || return 1
+  fi
 }
 
 install_debian() {
@@ -410,7 +425,8 @@ install_dnf() {
   local repo form
   form="$1"
   repo="$(root_path /etc/yum.repos.d/brave-browser.repo)"
-  if [[ ! -f "$repo" && ! -f "$(state_dir)/brave-rpm-repo-added" ]]; then
+  prepare_rpm_repo "$repo" || return 1
+  if [[ "$RPM_REPO_READY" -eq 0 ]]; then
     sudo_cmd dnf install -y dnf-plugins-core || {
       warn "dnf config-manager is not available, so Brave was not installed. Run: sudo dnf install dnf-plugins-core"
       return 1
@@ -428,7 +444,8 @@ install_dnf() {
 install_opensuse() {
   local repo
   repo="$(root_path /etc/zypp/repos.d/brave-browser.repo)"
-  if [[ ! -f "$repo" && ! -f "$(state_dir)/brave-rpm-repo-added" ]]; then
+  prepare_rpm_repo "$repo" || return 1
+  if [[ "$RPM_REPO_READY" -eq 0 ]]; then
     sudo_cmd zypper --non-interactive --gpg-auto-import-keys addrepo "$BRAVE_RPM_REPO_URL" || return 1
     mark_state brave-rpm-repo-added
   fi
@@ -481,7 +498,7 @@ PY
 handle_repo_move() {
   local label="$1" prompt
   if marked brave-repo-move-declined; then
-    note "Keeping the Brave install from ${label} and its data directory."
+    note "Brave from ${label} is a separate profile, and that copy stays installed. Bookmarks move only at brave://settings/importData. Passwords stay in Bitwarden."
     return 1
   fi
   prompt="Brave from ${label} is a separate profile, and that copy stays installed. Install the official package? Bookmarks move only at brave://settings/importData. Passwords stay in Bitwarden."

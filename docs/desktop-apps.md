@@ -50,7 +50,7 @@ Reviewed on 2026-10-29 against that spec and against [brave.com/linux](https://b
 | Fedora Atomic | Groundwork prints the `rpm-ostree` commands and installs nothing. The install needs a reboot. |
 | Any other family | One line with https://brave.com/linux/. Nothing is installed. |
 
-Brave publishes amd64 and arm64 packages. After you confirm, the package command is non-interactive. Headless machines and WSL skip Brave, using the same rules as FreeTube. Omarchy is refused.
+Brave publishes amd64 and arm64 packages. After you confirm, the package command is non-interactive. A failed keyring or sources download removes only its temporary file. The previous file stays until a later download succeeds and replaces it. If the Fedora, RHEL, or openSUSE repo file is missing or empty, Groundwork deletes `~/.config/groundwork/brave-rpm-repo-added` and adds the repository again. Headless machines and WSL skip Brave, using the same rules as FreeTube. Omarchy is refused.
 
 The install needs administrator permission for the repository, the package, and the policy file. When a terminal is present, Groundwork asks once. The default is no. With no terminal, Groundwork writes nothing and does not record the install as done. Run `install-brave.sh` from a terminal to retry.
 
@@ -82,5 +82,6 @@ Groundwork does not uninstall Brave. Remove the `brave-browser` package with you
 - `/etc/apt/sources.list.d/brave-browser-release.sources`
 - `/etc/yum.repos.d/brave-browser.repo`
 - `/etc/zypp/repos.d/brave-browser.repo`
+- `~/.config/groundwork/brave-rpm-repo-added`
 
-Delete the decline files in `~/.config/groundwork/` to be asked again. Brave's profile, and any Flatpak or Snap data, stay until you delete them yourself.
+That last file recorded that the rpm or zypp repository was added. Delete it with the repo file. If the repo file is already gone, the next install removes the marker and adds the repository again. Delete the decline files in `~/.config/groundwork/` to be asked again. Brave's profile, and any Flatpak or Snap data, stay until you delete them yourself.

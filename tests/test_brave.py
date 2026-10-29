@@ -26,7 +26,7 @@ DESKTOP_ID = 'brave-browser.desktop'
 BITWARDEN = 'nngceckbapebfimnlniiiahkandclblb'
 SCRIPT = REPO / 'install-brave.sh'
 STUB = r'''#!/usr/bin/python3
-import json, os, pathlib, shutil, sys
+import json, os, pathlib, shutil, sys, time
 root = pathlib.Path(os.environ['WRAPPER_FIXTURE'])
 name = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
@@ -161,6 +161,12 @@ elif name == 'curl':
             url = token
         index += 1
     pathlib.Path(dest).parent.mkdir(parents=True, exist_ok=True)
+    (root / 'curl-dest').write_text(dest + '\n')
+    if os.environ.get('FIXTURE_CURL_HOLD') == '1':
+        pathlib.Path(dest).write_text('short\n')
+        print('curl-holding', flush=True)
+        time.sleep(30)
+        raise SystemExit(0)
     if os.environ.get('FIXTURE_CURL_EXIT') == '28':
         pathlib.Path(dest).write_text('short\n')
         raise SystemExit(28)
@@ -239,7 +245,8 @@ class BraveInstallTests(unittest.TestCase):
         for key in ('WAYLAND_DISPLAY', 'WSL_DISTRO_NAME', 'WSL_INTEROP',
                     'GROUNDWORK_UPDATE_SCOPE', 'XDG_CONFIG_HOME', 'GROUNDWORK_BRAVE_SPEC',
                     'FIXTURE_OS', 'FIXTURE_DEFAULT_BROWSER', 'FIXTURE_SUDO_NONINTERACTIVE',
-                    'FIXTURE_SUDO_PASSWORD', 'FIXTURE_CURL_EXIT', 'FIXTURE_APT_CURL_FAIL',
+                    'FIXTURE_SUDO_PASSWORD', 'FIXTURE_CURL_EXIT', 'FIXTURE_CURL_HOLD',
+                    'FIXTURE_APT_CURL_FAIL',
                     'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
             self.env.pop(key, None)
 
@@ -436,20 +443,38 @@ class BraveInstallTests(unittest.TestCase):
         self.assertFalse((self.root / 'usr/share/keyrings/brave-browser-archive-keyring.gpg').exists())
         self.assertFalse((self.root / 'usr/bin/brave-browser').exists())
 
-    def test_partial_keyring_download_is_removed_and_retried(self):
+    def test_partial_keyring_download_keeps_the_old_file_until_success(self):
         key = self.root / 'usr/share/keyrings/brave-browser-archive-keyring.gpg'
+        sources = self.root / 'etc/apt/sources.list.d/brave-browser-release.sources'
         key.parent.mkdir(parents=True)
-        key.write_text('short\n')
+        sources.parent.mkdir(parents=True)
+        key.write_text('good-keyring\n')
+        sources.write_text('good-sources\n')
         self.env['FIXTURE_CURL_EXIT'] = '28'
         self.run_pty([(b'[y/N]', 'y')])
-        self.assertFalse(key.exists())
-        self.assertTrue(any(call[0] == 'curl' and call[-1] == KEY_URL for call in self.calls()))
-        self.assertIn(['rm', '-f', '--', str(key)], self.sudo_calls())
-        self.reset_calls()
-        self.run_pty([(b'[y/N]', 'y')])
-        self.assertFalse(key.exists())
-        self.assertTrue(any(call[0] == 'curl' and call[-1] == KEY_URL for call in self.calls()))
+        self.assertEqual(key.read_text(), 'good-keyring\n')
+        self.assertEqual(sources.read_text(), 'good-sources\n')
+        self.assertNotIn('short', key.read_text())
+        self.assertNotIn(['rm', '-f', '--', str(key)], self.sudo_calls())
+        temp = Path((self.root / 'curl-dest').read_text().strip())
+        self.assertNotEqual(temp, key)
+        self.assertFalse(temp.exists())
         self.assertFalse((self.root / 'usr/bin/brave-browser').exists())
+        self.env.pop('FIXTURE_CURL_EXIT')
+        self.reset_calls()
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+        self.assertEqual(key.read_text().strip(), KEY_URL)
+        self.assertEqual(sources.read_text().strip(), SOURCES_URL)
+        self.assertTrue((self.root / 'usr/bin/brave-browser').exists())
+
+    def test_ctrl_c_during_download_removes_the_temp_file(self):
+        self.env['FIXTURE_CURL_HOLD'] = '1'
+        self.run_pty([(b'[y/N]', 'y'), (b'curl-holding', 'CTRL-C')], status=130)
+        temp = Path((self.root / 'curl-dest').read_text().strip())
+        self.assertIn(os.sep + 'tmp' + os.sep, str(temp))
+        self.assertFalse(temp.exists())
+        self.assertFalse(temp.parent.exists())
+        self.assertFalse((self.root / 'usr/share/keyrings/brave-browser-archive-keyring.gpg').exists())
 
     def test_fedora_rhel_and_opensuse_write_the_brave_repo(self):
         cases = (
@@ -479,6 +504,52 @@ class BraveInstallTests(unittest.TestCase):
                     plugin = ['dnf', 'install', '-y', 'dnf-plugins-core']
                     self.assertIn(plugin, calls)
                     self.assertLess(calls.index(plugin), calls.index(expected))
+
+    def test_missing_rpm_repo_file_is_added_again_when_the_marker_remains(self):
+        cases = (
+            ({'ID': 'fedora', 'VERSION_ID': '41'},
+             self.root / 'etc/yum.repos.d/brave-browser.repo',
+             ['dnf', 'config-manager', 'addrepo', f'--from-repofile={RPM_URL}']),
+            ({'ID': 'opensuse-tumbleweed', 'ID_LIKE': '"suse opensuse"'},
+             self.root / 'etc/zypp/repos.d/brave-browser.repo',
+             ['zypper', '--non-interactive', '--gpg-auto-import-keys', 'addrepo', RPM_URL]),
+        )
+        for fields, repo, expected in cases:
+            with self.subTest(fields=fields, kind='absent'):
+                self.reset_install_state()
+                self.write_os_release(**fields)
+                self.state_path('brave-rpm-repo-added').parent.mkdir(parents=True)
+                self.state_path('brave-rpm-repo-added').write_text('old\n')
+                self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+                self.assertIn(expected, self.sudo_calls())
+                self.assertTrue(repo.is_file())
+                self.assertGreater(repo.stat().st_size, 0)
+                self.assertTrue((self.root / 'usr/bin/brave-browser').exists())
+            with self.subTest(fields=fields, kind='empty'):
+                self.reset_install_state()
+                self.write_os_release(**fields)
+                self.state_path('brave-rpm-repo-added').parent.mkdir(parents=True)
+                self.state_path('brave-rpm-repo-added').write_text('old\n')
+                repo.parent.mkdir(parents=True)
+                repo.write_text('')
+                self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+                calls = self.sudo_calls()
+                self.assertIn(expected, calls)
+                self.assertLess(calls.index(['rm', '-f', '--', str(repo)]), calls.index(expected))
+                self.assertGreater(repo.stat().st_size, 0)
+        self.reset_install_state()
+        self.write_os_release(ID='fedora', VERSION_ID='41')
+        repo = self.root / 'etc/yum.repos.d/brave-browser.repo'
+        repo.parent.mkdir(parents=True)
+        repo.write_text('repo\n')
+        self.state_path('brave-rpm-repo-added').parent.mkdir(parents=True)
+        self.state_path('brave-rpm-repo-added').write_text('old\n')
+        self.env['FIXTURE_SUDO_NONINTERACTIVE'] = '1'
+        self.env['GROUNDWORK_UPDATE_SCOPE'] = 'maintenance'
+        self.run_script()
+        calls = self.sudo_calls()
+        self.assertFalse(any('addrepo' in call or '--add-repo' in call for call in calls))
+        self.assertTrue(any('dnf' in call and 'brave-browser' in call for call in calls))
 
     def test_arch_uses_an_aur_helper_or_prints_the_command(self):
         self.write_os_release(ID='arch')
@@ -659,6 +730,16 @@ class BraveInstallTests(unittest.TestCase):
         self.assertTrue(self.state_path('brave-repo-move-declined').is_file())
         self.assertEqual((data / 'profile').read_text(), 'keep\n')
         self.assertFalse(any('uninstall' in call or 'remove' in call for call in self.calls()))
+        self.assertNotIn('data directory', declined.lower())
+        self.assertFalse((self.root / 'usr' / 'bin' / 'brave-browser').exists())
+        self.reset_calls()
+        reminder = self.run_pty([])
+        self.assertIn('separate profile', reminder.lower())
+        self.assertIn('stays installed', reminder.lower())
+        self.assertIn('brave://settings/importData', reminder)
+        self.assertIn('Passwords stay in Bitwarden', reminder)
+        self.assertNotIn('data directory', reminder.lower())
+        self.assertNotIn('[y/N]', reminder)
         self.assertFalse((self.root / 'usr' / 'bin' / 'brave-browser').exists())
         self.state_path('brave-repo-move-declined').unlink()
         self.reset_calls()
