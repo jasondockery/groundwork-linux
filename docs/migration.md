@@ -10,4 +10,4 @@ This migration is for non-Omarchy Linux. No existing Groundwork-on-Omarchy migra
 
 ## Desktop apps
 
-Linux desktops install FreeTube from this entry point as the Flathub user Flatpak `io.freetubeapp.FreeTube`, and install Brave from Brave's official package repository, making it the default browser once. After the engine apply, run `bash bootstrap.sh` on a clean engine checkout to register the local apply hook that `update-all` runs. Initialize the `core` submodule first so Brave's policies come from groundwork-core v0.7.0. Headless and WSL targets skip FreeTube and Brave. See [desktop apps](desktop-apps.md).
+Linux desktops install FreeTube from this entry point as the Flathub user Flatpak `io.freetubeapp.FreeTube`, and install Brave from Brave's official package repository, making it the default browser once. After the engine apply, run `bash bootstrap.sh` on a clean engine checkout to register the local apply hook that `update-all` runs. Initialize the `core` submodule first so Brave's policies come from groundwork-core v0.8.0. Headless and WSL targets skip FreeTube and Brave. See [desktop apps](desktop-apps.md).

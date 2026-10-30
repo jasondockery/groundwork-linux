@@ -18,7 +18,7 @@ import time
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
-CORE_SHA = '0395895c86ed24d942c3803c521cf2131cfa52c7'
+CORE_SHA = '5c8526102170d8f9a9b0a7d102dfdc0a3b66e20d'
 KEY_URL = 'https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg'
 SOURCES_URL = 'https://brave-browser-apt-release.s3.brave.com/brave-browser.sources'
 RPM_URL = 'https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo'
@@ -258,7 +258,7 @@ class BraveInstallTests(unittest.TestCase):
         stub.chmod(0o755)
         for name in ('uname', 'sudo', 'xdg-settings', 'flatpak', 'snap', 'curl', 'gpg'):
             (self.bin / name).symlink_to(stub)
-        for name in ('grep', 'head', 'bash', 'python3', 'mktemp', 'cmp', 'rm', 'mkdir', 'dirname', 'env', 'sleep'):
+        for name in ('grep', 'head', 'bash', 'python3', 'mktemp', 'cmp', 'rm', 'mkdir', 'dirname', 'env', 'sleep', 'chmod', 'setsid'):
             (self.bin / name).symlink_to(shutil.which(name))
         self.os_release = self.root / 'os-release'
         self.write_os_release(ID='ubuntu', VERSION_ID='"24.04"', ID_LIKE='debian')
@@ -277,6 +277,7 @@ class BraveInstallTests(unittest.TestCase):
                     'FIXTURE_OS', 'FIXTURE_DEFAULT_BROWSER', 'FIXTURE_SUDO_NONINTERACTIVE',
                     'FIXTURE_SUDO_PASSWORD', 'FIXTURE_CURL_EXIT', 'FIXTURE_CURL_HOLD',
                     'FIXTURE_CURL_BODY', 'FIXTURE_APT_CURL_FAIL', 'FIXTURE_BRAVE_MODE', 'FIXTURE_XDG_IGNORE_SET',
+                    'SSH_CONNECTION', 'SSH_TTY', 'XDG_RUNTIME_DIR', 'XAUTHORITY',
                     'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
             self.env.pop(key, None)
 
@@ -371,7 +372,7 @@ class BraveInstallTests(unittest.TestCase):
         self.assertEqual(code, status, text)
         return text
 
-    def test_core_submodule_is_groundwork_core_v070(self):
+    def test_core_submodule_is_groundwork_core_v080(self):
         env = os.environ.copy()
         for key in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
             env.pop(key, None)
@@ -748,6 +749,60 @@ class BraveInstallTests(unittest.TestCase):
         self.assertNotIn(f'HOME={self.root}\n', log)
         data_dir = [line for line in log.splitlines() if '--user-data-dir=' in line][0].split('=', 1)[1]
         self.assertFalse(Path(data_dir).exists())
+
+    def test_launch_gets_a_private_runtime_dir_and_only_the_display(self):
+        self.env['XDG_RUNTIME_DIR'] = '/run/user/fixture'
+        self.env['WAYLAND_DISPLAY'] = 'wayland-0'
+        self.env['DBUS_SESSION_BUS_ADDRESS'] = 'unix:path=/run/user/fixture/bus'
+        self.env['XAUTHORITY'] = '/fixture/xauth'
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        log = self.launch_log()
+        lines = log.splitlines()
+        runtime = [l for l in lines if l.startswith('XDG_RUNTIME_DIR=')][0].split('=', 1)[1]
+        self.assertNotEqual(runtime, '/run/user/fixture')
+        self.assertTrue(runtime.endswith('/run'))
+        self.assertNotIn('DBUS_SESSION_BUS_ADDRESS', log)
+        self.assertIn('WAYLAND_DISPLAY=/run/user/fixture/wayland-0', lines)
+        self.assertIn('DISPLAY=:0', lines)
+        self.assertIn('XAUTHORITY=/fixture/xauth', lines)
+
+    def test_x11_launch_passes_no_wayland_or_session_variables(self):
+        self.env['XDG_RUNTIME_DIR'] = '/run/user/fixture'
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        log = self.launch_log()
+        self.assertNotIn('WAYLAND_DISPLAY', log)
+        self.assertNotIn('/run/user/fixture', log)
+
+    def test_ssh_session_defers_even_with_x11_forwarding(self):
+        self.env['FIXTURE_DEFAULT_BROWSER'] = 'firefox.desktop'
+        for key in ('SSH_CONNECTION', 'SSH_TTY'):
+            with self.subTest(key=key):
+                self.reset_install_state()
+                self.env.pop('SSH_CONNECTION', None)
+                self.env.pop('SSH_TTY', None)
+                self.env[key] = 'fixture'
+                self.env['DISPLAY'] = 'localhost:10.0'
+                text = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+                self.assertIn('no desktop session', text)
+                self.assertEqual(self.xdg_sets(), [])
+                self.assertFalse((self.root / 'usr' / 'bin' / 'brave-launch.log').exists())
+
+    def test_other_default_is_asked_before_the_window_opens(self):
+        self.env['FIXTURE_DEFAULT_BROWSER'] = 'vivaldi-stable.desktop'
+        text = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+        self.assertNotIn('Checking that Brave starts', text)
+        self.assertFalse((self.root / 'usr' / 'bin' / 'brave-launch.log').exists())
+        self.assertTrue(self.state_path('brave-default-declined').is_file())
+
+    def test_chromium_is_stock_only_on_raspberry_pi_os(self):
+        self.env['FIXTURE_DEFAULT_BROWSER'] = 'chromium.desktop'
+        text = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+        self.assertIn('Make Brave the default browser?', text)
+        self.reset_install_state()
+        self.write_os_release(ID='raspbian', VERSION_ID='"12"', ID_LIKE='debian')
+        text = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        self.assertNotIn('Make Brave the default browser?', text)
+        self.assertIn('Brave is now the default browser', text)
 
     def test_default_is_never_switched_a_second_time(self):
         self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
