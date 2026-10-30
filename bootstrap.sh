@@ -4,10 +4,12 @@ set -euo pipefail
 ENGINE_DESKTOP_HOOK=home/run_after_33-groundwork-linux-desktop-apps.sh
 
 usage() {
-  echo "Usage: $0 [--prepare-only]"
+  echo "Usage: $0 [--prepare-only] [--with-git-filter-repo]"
   echo "Prepare the shared Groundwork engine, then run its Linux setup."
   echo "On a Linux desktop, setup registers an apply hook for FreeTube and Brave."
   echo "--prepare-only clones the engine and prints preview steps without applying it."
+  echo "--with-git-filter-repo installs git-filter-repo for your user with pipx, never with root. It is off by default."
+  echo "See docs/git-filter-repo.md."
 }
 
 ignore_engine_desktop_hook() {
@@ -49,9 +51,11 @@ install_linux_desktop_apps() {
 }
 
 prepare_only=0
+with_git_filter_repo=0
 for arg in "$@"; do
   case "$arg" in
     --prepare-only) prepare_only=1 ;;
+    --with-git-filter-repo) with_git_filter_repo=1 ;;
     --help | -h) usage; exit 0 ;;
     *) echo "Unknown argument: $arg" >&2; usage >&2; exit 64 ;;
   esac
@@ -102,6 +106,12 @@ if [[ $prepare_only -eq 1 ]]; then
   printf 'Prepared engine at %s. No configuration was applied.\n' "$engine_dir"
   printf 'Read docs/migration.md, then initialize, preview, and apply that source explicitly.\n'
   exit 0
+fi
+
+# Opt-in only: a default run never installs git-filter-repo. The helper installs per
+# user with no root and never runs a history rewrite. See docs/git-filter-repo.md.
+if [[ $with_git_filter_repo -eq 1 ]]; then
+  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install-git-filter-repo.sh"
 fi
 
 # Register the desktop hook before apply so this run and later update-all runs

@@ -54,6 +54,10 @@ Linux desktops install [FreeTube](https://freetubeapp.io/) by default: a private
 
 The same desktops offer [Brave](https://brave.com/linux/) from Brave's official package repository and make it the default browser once, with `xdg-settings`, after a short launch check passes (a Brave window opens in a throwaway profile for a few seconds). Groundwork never overrides a default you chose later, respects a saved no, and only offers when your default is not the distribution's stock browser. With no desktop session it defers and prints one line. Policies and the Bitwarden offer are rendered from groundwork-core (`core/browser/brave.json`). Groundwork does not uninstall another browser or delete profile data. See [desktop apps](docs/desktop-apps.md).
 
+## History purges (opt-in)
+
+`bash bootstrap.sh --with-git-filter-repo` installs `git-filter-repo` for your user with pipx, with no root. It is off by default and is never installed otherwise. Setup never rewrites history. The procedure is the shared [history purge runbook](https://github.com/jasondockery/groundwork-core/blob/v0.8.1/docs/history-purge.md); the proof check and removal are in [git-filter-repo](docs/git-filter-repo.md).
+
 ## License
 
 [MIT](LICENSE), matching the Groundwork family.
