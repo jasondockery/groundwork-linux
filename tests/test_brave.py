@@ -380,12 +380,26 @@ class BraveInstallTests(unittest.TestCase):
         self.assertRegex(tag, r'^v\d+\.\d+\.\d+$')
         sha = subprocess.run(['git', '-C', str(REPO), 'rev-parse', 'HEAD:core'],
                              check=True, capture_output=True, text=True, env=env).stdout.strip()
-        # CI checks core out at the gitlink commit without tags, so ask the remote.
-        listing = subprocess.run(['git', 'ls-remote', 'https://github.com/jasondockery/groundwork-core.git',
-                                  f'refs/tags/{tag}', f'refs/tags/{tag}^{{}}'],
-                                 check=True, capture_output=True, text=True, env=env).stdout.splitlines()
-        # An annotated tag lists its commit last, on the peeled ^{} line.
-        tagged = listing[-1].split()[0]
+        tagged = None
+        if (REPO / 'core' / '.git').exists():
+            local = subprocess.run(['git', '-C', str(REPO / 'core'), 'rev-parse', '-q', '--verify',
+                                    f'refs/tags/{tag}^{{commit}}'],
+                                   capture_output=True, text=True, env=env)
+            if local.returncode == 0:
+                tagged = local.stdout.strip()
+        if tagged is None:
+            # CI checks core out at the gitlink commit without tags, so ask the remote.
+            # GIT_CONFIG_GLOBAL=/dev/null keeps a global insteadOf https->ssh rule out of it.
+            remote_env = dict(env, GIT_CONFIG_GLOBAL='/dev/null', GIT_TERMINAL_PROMPT='0')
+            listing = subprocess.run(['git', 'ls-remote', 'https://github.com/jasondockery/groundwork-core.git',
+                                      f'refs/tags/{tag}', f'refs/tags/{tag}^{{}}'],
+                                     capture_output=True, text=True, env=remote_env)
+            if listing.returncode != 0 or not listing.stdout.strip():
+                if os.environ.get('CI'):
+                    self.fail(f'cannot resolve tag {tag}: {listing.stderr.strip()}')
+                self.skipTest(f'tag {tag} is not in the local core checkout and the remote is unreachable')
+            # An annotated tag lists its commit last, on the peeled ^{} line.
+            tagged = listing.stdout.splitlines()[-1].split()[0]
         self.assertEqual(sha, tagged)
         self.assertTrue((REPO / 'core' / 'browser' / 'brave.json').is_file())
 
