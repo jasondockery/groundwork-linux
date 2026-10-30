@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # bash 4.0+ (Linux). Install Brave from Brave's official package repository.
 # Policies and the extension offer are rendered from core/browser/brave.json
-# (groundwork-core v0.8.0). This script does not uninstall a browser or delete
+# (groundwork-core). This script does not uninstall a browser or delete
 # profile data. Brave becomes the default browser once, automatically, after a
 # launch check passes (groundwork-core docs/browser.md, "Setting the default").
 # Other prompts default to no.

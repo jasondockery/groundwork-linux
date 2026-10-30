@@ -6,7 +6,7 @@ Desktop Macs install FreeTube from the official pinned disk image in the shared 
 
 ## When it installs
 
-`bash bootstrap.sh` copies `install-desktop-apps.sh`, `install-brave.sh`, and `brave.json` to `~/.local/lib/groundwork-linux/` and writes `home/run_after_33-groundwork-linux-desktop-apps.sh` into the local engine checkout. `brave.json` is copied from the `core` submodule, groundwork-core v0.8.0. That hook path is listed in the checkout's `.git/info/exclude`, so `git status` in the engine stays clean. `chezmoi apply` runs the hook. `update-all` and `groundwork-update` both apply the engine, so both run the hook. The hook runs FreeTube and Brave. A missing helper skips only that app.
+`bash bootstrap.sh` copies `install-desktop-apps.sh`, `install-brave.sh`, and `brave.json` to `~/.local/lib/groundwork-linux/` and writes `home/run_after_33-groundwork-linux-desktop-apps.sh` into the local engine checkout. `brave.json` is copied from the `core` submodule, groundwork-core. That hook path is listed in the checkout's `.git/info/exclude`, so `git status` in the engine stays clean. `chezmoi apply` runs the hook. `update-all` and `groundwork-update` both apply the engine, so both run the hook. The hook runs FreeTube and Brave. A missing helper skips only that app.
 
 `update-all` sets `GROUNDWORK_UPDATE_SCOPE=maintenance`. The hook installs FreeTube when it is missing and updates that Flatpak when it is present. `groundwork-update` sets `GROUNDWORK_UPDATE_SCOPE=configuration`. The hook installs FreeTube when it is missing and leaves an existing install unchanged.
 
@@ -34,7 +34,7 @@ Removing FreeTube from later applies means deleting the hook. A missing helper o
 
 Brave is the browser Groundwork offers on a non-Omarchy Linux desktop. Shields, Brave's built-in blocker, blocks ads and trackers. The install follows the per-family steps on [brave.com/linux](https://brave.com/linux/). Groundwork does not run `curl | sh`, and it does not install the Flatpak or the Snap. Those packages stay if you already have them. Groundwork does not uninstall a browser or delete profile data.
 
-The browser choice, the policy overrides, and the extension offer come from [`core/browser/brave.json`](https://github.com/jasondockery/groundwork-core/blob/v0.8.0/browser/brave.json) in groundwork-core v0.8.0. This repository renders that file. It does not keep a second list. The contract for people is [Brave, the default browser](https://github.com/jasondockery/groundwork-core/blob/v0.8.0/docs/browser.md).
+The browser choice, the policy overrides, and the extension offer come from [`core/browser/brave.json`](https://github.com/jasondockery/groundwork-core/blob/main/browser/brave.json) in groundwork-core. This repository renders that file. It does not keep a second list. The contract for people is [Brave, the default browser](https://github.com/jasondockery/groundwork-core/blob/main/docs/browser.md).
 
 Reviewed on 2026-10-29 against that spec and against [brave.com/linux](https://brave.com/linux/). The spec records Brave's policy defaults from brave-core `cd9be34acde11812242364dded5f6aa7284be206`. A later Brave release that changes one of those defaults, or a change to the Linux install page, invalidates the review. Groundwork does not pin a Brave build number. Brave's official stable repository supplies package updates. That is the method on Brave's page.
 
