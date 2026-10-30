@@ -18,7 +18,6 @@ import time
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
-CORE_SHA = '5c8526102170d8f9a9b0a7d102dfdc0a3b66e20d'
 KEY_URL = 'https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg'
 SOURCES_URL = 'https://brave-browser-apt-release.s3.brave.com/brave-browser.sources'
 RPM_URL = 'https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo'
@@ -372,13 +371,18 @@ class BraveInstallTests(unittest.TestCase):
         self.assertEqual(code, status, text)
         return text
 
-    def test_core_submodule_is_groundwork_core_v080(self):
+    def test_core_submodule_matches_gitmodules_branch_tag(self):
         env = os.environ.copy()
         for key in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
             env.pop(key, None)
+        tag = subprocess.run(['git', 'config', '--file', str(REPO / '.gitmodules'), 'submodule.core.branch'],
+                             check=True, capture_output=True, text=True, env=env).stdout.strip()
+        self.assertRegex(tag, r'^v\d+\.\d+\.\d+$')
         sha = subprocess.run(['git', '-C', str(REPO / 'core'), 'rev-parse', 'HEAD'],
                              check=True, capture_output=True, text=True, env=env).stdout.strip()
-        self.assertEqual(sha, CORE_SHA)
+        tagged = subprocess.run(['git', '-C', str(REPO / 'core'), 'rev-parse', tag + '^{commit}'],
+                                check=True, capture_output=True, text=True, env=env).stdout.strip()
+        self.assertEqual(sha, tagged)
         self.assertTrue((REPO / 'core' / 'browser' / 'brave.json').is_file())
 
     def test_help_and_invalid_input_have_no_external_effects(self):
