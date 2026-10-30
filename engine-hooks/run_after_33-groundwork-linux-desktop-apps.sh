@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Local apply hook installed by groundwork-linux bootstrap.sh.
 # chezmoi apply runs it, which is how update-all and groundwork-update
-# install FreeTube and offer Brave. Each helper owns its skip rules.
+# install FreeTube and Brave (Brave becomes the default once). Each helper owns its skip rules.
 # bash 4.0+ (Linux).
 set -euo pipefail
 

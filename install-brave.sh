@@ -2,10 +2,13 @@
 # bash 4.0+ (Linux). Install Brave from Brave's official package repository.
 # Policies and the extension offer are rendered from core/browser/brave.json
 # (groundwork-core v0.7.0). This script does not uninstall a browser or delete
-# profile data. Prompts default to no.
+# profile data. Brave becomes the default browser once, automatically, after a
+# launch check passes (groundwork-core docs/browser.md, "Setting the default").
+# Other prompts default to no.
 # Fixture seams, not user settings: GROUNDWORK_OS_RELEASE_FILE,
 # GROUNDWORK_OSRELEASE_FILE, GROUNDWORK_OMARCHY_DIR, GROUNDWORK_OSTREE_FILE,
-# GROUNDWORK_ROOT, GROUNDWORK_BRAVE_SPEC.
+# GROUNDWORK_ROOT, GROUNDWORK_BRAVE_SPEC, GROUNDWORK_BRAVE_SETTLE_SECONDS,
+# GROUNDWORK_BRAVE_CLOSE_SECONDS.
 set -euo pipefail
 
 BRAVE_PAGE=https://brave.com/linux/
@@ -15,14 +18,18 @@ BRAVE_RPM_REPO_URL=https://brave-browser-rpm-release.s3.brave.com/brave-browser.
 
 usage() {
   echo "Usage: $0"
-  echo "Install Brave from its official package repository and offer it as the default browser."
+  echo "Install Brave from its official package repository and make it the default browser once."
   echo "Debian, Ubuntu, and Mint install curl when it is missing, then use Brave's apt repository."
   echo "Fedora and RHEL install dnf-plugins-core, then add Brave's repo. Fedora 41 and newer use dnf addrepo."
   echo "Older Fedora and RHEL use dnf --add-repo. openSUSE uses non-interactive zypper and imports the repo key."
   echo "Arch uses an AUR helper for brave-bin."
   echo "Fedora Atomic prints the rpm-ostree commands and does not install. Other families print ${BRAVE_PAGE}."
   echo "Headless and WSL targets skip Brave. Omarchy is refused."
-  echo "A terminal asks before installing, offering Bitwarden, or changing the default. The default answer is no."
+  echo "A terminal asks before installing and before offering Bitwarden. The default answer is no."
+  echo "Once, when Brave is installed and a short launch with a throwaway profile works, the default browser"
+  echo "becomes Brave with xdg-settings, if the current default is the distribution's stock browser."
+  echo "Any other default only gets a question, a saved no is respected, and a later choice is never overridden."
+  echo "With no desktop session the default is deferred and one line says so. Without a terminal, only a stock default is switched."
   echo "update-all does not install or upgrade Brave and does not ask. The distribution updates an installed Brave."
 }
 
@@ -46,7 +53,15 @@ retry_command() {
 }
 
 work=""
+launch_tmp=""
+launch_pid=""
 cleanup() {
+  if [[ -n "${launch_pid}" ]]; then
+    kill -KILL "$launch_pid" 2>/dev/null || true
+  fi
+  if [[ -n "${launch_tmp}" ]]; then
+    rm -rf "$launch_tmp"
+  fi
   if [[ -n "${work}" ]]; then
     rm -rf "$work"
   fi
@@ -598,6 +613,133 @@ handle_extension() {
   fi
 }
 
+# The distribution's stock browsers. An unset default counts as stock. Anything
+# else was chosen by the person, so Brave only gets an offer.
+STOCK_BROWSERS=" firefox.desktop firefox-esr.desktop org.mozilla.firefox.desktop firefox_firefox.desktop org.gnome.Epiphany.desktop "
+
+is_stock_default() {
+  [[ -z "$1" || "$STOCK_BROWSERS" == *" $1 "* ]]
+}
+
+desktop_session() {
+  [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]
+}
+
+brave_launch_binary() {
+  local found
+  if found="$(command -v brave-browser 2>/dev/null)"; then
+    printf '%s\n' "$found"
+  else
+    root_path /usr/bin/brave-browser
+  fi
+}
+
+# A real windowed launch of the installed Brave in a throwaway profile: the
+# user's Brave profile, home, keyring, and D-Bus are not passed. It must stay
+# up for the settle time, then exit 0 (or by SIGTERM) within the close time.
+# A timeout or crash is not remembered, so the next run checks again.
+# Sets launch_reason on failure. Returns 0 on pass.
+check_brave_launch() {
+  local bin settle close waited status
+  settle="${GROUNDWORK_BRAVE_SETTLE_SECONDS:-5}"
+  close="${GROUNDWORK_BRAVE_CLOSE_SECONDS:-10}"
+  [[ "$settle" =~ ^[0-9]+$ ]] || settle=5
+  [[ "$close" =~ ^[0-9]+$ ]] || close=10
+  launch_reason=""
+  bin="$(brave_launch_binary)"
+  if [[ ! -x "$bin" ]]; then
+    launch_reason="the Brave command was not found"
+    return 1
+  fi
+  launch_tmp="$(mktemp -d)" || {
+    launch_reason="a temporary profile directory could not be made"
+    return 1
+  }
+  mkdir -p "$launch_tmp/home" "$launch_tmp/profile"
+  local -a launch_env=(
+    PATH=/usr/bin:/bin LANG=C.UTF-8
+    "HOME=$launch_tmp/home" "TMPDIR=$launch_tmp"
+    "XDG_CONFIG_HOME=$launch_tmp/home/.config" "XDG_CACHE_HOME=$launch_tmp/home/.cache"
+    "XDG_DATA_HOME=$launch_tmp/home/.local/share" "XDG_STATE_HOME=$launch_tmp/home/.local/state"
+    "XAUTHORITY=${XAUTHORITY:-$HOME/.Xauthority}"
+  )
+  [[ -z "${DISPLAY:-}" ]] || launch_env+=("DISPLAY=$DISPLAY")
+  [[ -z "${WAYLAND_DISPLAY:-}" ]] || launch_env+=("WAYLAND_DISPLAY=$WAYLAND_DISPLAY")
+  [[ -z "${XDG_RUNTIME_DIR:-}" ]] || launch_env+=("XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR")
+  (
+    ulimit -c 0
+    exec env -i "${launch_env[@]}" "$bin" "--user-data-dir=$launch_tmp/profile" \
+      --no-first-run --no-default-browser-check --password-store=basic \
+      --disable-extensions --disable-background-networking --disable-component-update \
+      about:blank
+  ) >/dev/null 2>&1 </dev/null &
+  launch_pid=$!
+  waited=0
+  while [[ "$waited" -lt "$settle" ]]; do
+    sleep 1
+    waited=$((waited + 1))
+    if ! kill -0 "$launch_pid" 2>/dev/null; then
+      status=0
+      wait "$launch_pid" || status=$?
+      launch_pid=""
+      launch_reason="Brave exited (status ${status}) within ${settle} seconds of starting"
+      rm -rf "$launch_tmp"; launch_tmp=""
+      return 1
+    fi
+  done
+  kill -TERM "$launch_pid" 2>/dev/null || true
+  waited=0
+  while [[ "$waited" -lt "$close" ]] && kill -0 "$launch_pid" 2>/dev/null; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+  if kill -0 "$launch_pid" 2>/dev/null; then
+    kill -KILL "$launch_pid" 2>/dev/null || true
+    wait "$launch_pid" 2>/dev/null || true
+    launch_pid=""
+    launch_reason="Brave did not close within ${close} seconds"
+    rm -rf "$launch_tmp"; launch_tmp=""
+    return 1
+  fi
+  status=0
+  wait "$launch_pid" || status=$?
+  launch_pid=""
+  rm -rf "$launch_tmp"; launch_tmp=""
+  if [[ "$status" -ne 0 && "$status" -ne 143 ]]; then
+    launch_reason="Brave closed with status ${status}"
+    return 1
+  fi
+  return 0
+}
+
+switch_back_hint() {
+  if [[ -n "$1" ]]; then
+    printf 'xdg-settings set default-web-browser %s' "$1"
+  else
+    printf "your desktop's Default Applications settings"
+  fi
+}
+
+# Sets the default, then checks it with xdg-settings get. Records the switch
+# only when the check agrees. $1 is the previous default, for the switch-back hint.
+set_brave_default() {
+  local previous="$1" after
+  if xdg-settings set default-web-browser "$desktop_id"; then
+    after="$(xdg-settings get default-web-browser 2>/dev/null || true)"
+    after="${after//[[:space:]]/}"
+    if [[ "$after" == "$desktop_id" ]]; then
+      mark_state brave-default-set
+      note "Brave is now the default browser. To switch back, use $(switch_back_hint "$previous")."
+      return 0
+    fi
+  fi
+  warn "The default browser was not changed. Run: xdg-settings set default-web-browser ${desktop_id}"
+  return 1
+}
+
+# Brave becomes the default once. brave-default-set means the switch already
+# happened (or Brave was already the default), so a later choice stays. A saved
+# decline stays too. A default that is not a stock browser only gets the offer.
 handle_default() {
   local current
   [[ "$brave_is_installed" -eq 1 ]] || return 0
@@ -608,21 +750,32 @@ handle_default() {
   current="$(xdg-settings get default-web-browser 2>/dev/null || true)"
   current="${current//[[:space:]]/}"
   if [[ "$current" == "$desktop_id" ]]; then
+    marked brave-default-set || mark_state brave-default-set
     return 0
   fi
-  if marked brave-default-declined; then
+  if marked brave-default-set || marked brave-default-declined; then
     return 0
   fi
-  if [[ "${GROUNDWORK_UPDATE_SCOPE:-}" == maintenance ]] || ! interactive; then
+  if ! desktop_session; then
+    note "There is no desktop session, so the default browser was not changed. Run $(retry_command) from a terminal on the desktop to make Brave the default."
+    return 0
+  fi
+  # Only a default the person did not choose is switched without asking, so a
+  # run with no terminal (update-all included) may switch a stock default. Any
+  # other default needs a yes, which needs a terminal.
+  if ! is_stock_default "$current" && { [[ "${GROUNDWORK_UPDATE_SCOPE:-}" == maintenance ]] || ! interactive; }; then
     note "Brave is not the default browser. To make it the default, run: xdg-settings set default-web-browser ${desktop_id}"
     return 0
   fi
-  if confirm "Make Brave the default browser?"; then
-    if xdg-settings set default-web-browser "$desktop_id"; then
-      note "Brave is now the default browser."
-    else
-      warn "The default browser was not changed. Run: xdg-settings set default-web-browser ${desktop_id}"
-    fi
+  echo "Checking that Brave starts: a Brave window with a throwaway profile opens for a few seconds and closes by itself."
+  if ! check_brave_launch; then
+    note "Brave's launch check did not pass (${launch_reason}), so the default browser was not changed. Groundwork will check again on the next run."
+    return 0
+  fi
+  if is_stock_default "$current"; then
+    set_brave_default "$current" || true
+  elif confirm "Make Brave the default browser?"; then
+    set_brave_default "$current" || true
   elif [[ "$?" -eq 1 ]]; then
     mark_state brave-default-declined
     note "Keeping the current default browser. Groundwork will not ask again."
@@ -689,6 +842,7 @@ fi
 scope="${GROUNDWORK_UPDATE_SCOPE:-}"
 if [[ "$scope" == configuration && "$brave_is_installed" -eq 1 ]]; then
   note "Configuration-only apply: keeping the installed Brave."
+  handle_default
   exit 0
 fi
 

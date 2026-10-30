@@ -26,12 +26,14 @@ Use `groundwork-configure` to change preferences.
 On a Linux desktop, `update-all` also installs or updates FreeTube, the Flathub
 user Flatpak `io.freetubeapp.FreeTube`. `groundwork-update` installs that
 Flatpak when it is missing and leaves an existing install unchanged. The same
-apply offers Brave from Brave's official package repository. `update-all` does
-not install or upgrade Brave. The distribution's updater upgrades an installed
-Brave from that repository. With no terminal, `update-all` prints one notice
-and leaves Brave uninstalled. When Brave is already installed, it rewrites
-managed policies when they changed and prints at most one default-browser
-notice. It does not ask questions. See [desktop apps](docs/desktop-apps.md).
+apply installs Brave from Brave's official package repository and makes it the
+default browser once. `update-all` does not install or upgrade Brave. The
+distribution's updater upgrades an installed Brave from that repository. With
+no terminal, `update-all` prints one notice and leaves Brave uninstalled. When
+Brave is already installed, it rewrites managed policies when they changed.
+In a desktop session it may make the one-time default switch when the current
+default is unset or the distribution's stock browser, and otherwise prints at
+most one default-browser notice. It does not ask questions. See [desktop apps](docs/desktop-apps.md).
 
 Both commands belong to the visible `groundwork-mac` engine checkout selected
 during setup. This entry-point checkout contains setup guidance, not applied
@@ -50,7 +52,7 @@ explains the boundary.
 
 Linux desktops install [FreeTube](https://freetubeapp.io/) by default: a private YouTube client with no Google sign-in. The package is the Flathub user Flatpak `io.freetubeapp.FreeTube`. Desktop Macs get the official pinned FreeTube disk image from the shared engine. Homebrew disabled the `freetube` cask, so the engine does not declare it. Linux and WSL never receive that disk image. This repository installs the Linux Flatpak and skips it on headless and WSL targets. Groundwork writes no FreeTube settings.
 
-The same desktops offer [Brave](https://brave.com/linux/) from Brave's official package repository and can make it the default browser with `xdg-settings` after you say yes. Policies and the Bitwarden offer are rendered from groundwork-core v0.7.0 (`core/browser/brave.json`). Groundwork does not uninstall another browser or delete profile data. See [desktop apps](docs/desktop-apps.md).
+The same desktops offer [Brave](https://brave.com/linux/) from Brave's official package repository and make it the default browser once, with `xdg-settings`, after a short launch check passes (a Brave window opens in a throwaway profile for a few seconds). Groundwork never overrides a default you chose later, respects a saved no, and only offers when your default is not the distribution's stock browser. With no desktop session it defers and prints one line. Policies and the Bitwarden offer are rendered from groundwork-core v0.7.0 (`core/browser/brave.json`). Groundwork does not uninstall another browser or delete profile data. See [desktop apps](docs/desktop-apps.md).
 
 ## License
 

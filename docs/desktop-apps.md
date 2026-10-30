@@ -1,6 +1,6 @@
 # Desktop apps on Linux
 
-Linux desktops install FreeTube by default, and offer Brave from Brave's official package repository. FreeTube is a private YouTube client with no Google sign-in; subscriptions, history, and playlists stay in its own data directory. The package is the Flathub user Flatpak `io.freetubeapp.FreeTube`.
+Linux desktops install FreeTube by default, install Brave from Brave's official package repository and make it the default browser once. FreeTube is a private YouTube client with no Google sign-in; subscriptions, history, and playlists stay in its own data directory. The package is the Flathub user Flatpak `io.freetubeapp.FreeTube`.
 
 Desktop Macs install FreeTube from the official pinned disk image in the shared engine. Homebrew disabled the `freetube` cask, so the engine does not declare that cask. The disk image is desktop Macs only. Linux and WSL never receive it. This entry point installs the Flatpak. Omarchy keeps its own package path and is refused here.
 
@@ -54,11 +54,19 @@ Brave publishes amd64 and arm64 packages. After you confirm, the package command
 
 The install needs administrator permission for the repository, the package, and the policy file. When a terminal is present, Groundwork asks once. The default is no. With no terminal, Groundwork writes nothing and does not record the install as done. Run `install-brave.sh` from a terminal to retry.
 
-`groundwork-update` (configuration-only) installs Brave when it is missing and a terminal can ask, and leaves an installed Brave alone. `update-all` does not install or upgrade Brave. With no terminal it prints one notice and leaves Brave uninstalled. When Brave is already installed, it rewrites the policy file when the rendered policy changed and prints at most one default-browser notice. It does not ask.
+`groundwork-update` (configuration-only) installs Brave when it is missing and a terminal can ask, and leaves an installed Brave alone apart from the one-time default switch below. `update-all` does not install or upgrade Brave. With no terminal it prints one notice and leaves Brave uninstalled. When Brave is already installed, it rewrites the policy file when the rendered policy changed and handles the default as below. It does not ask.
 
 ### Default browser
 
-When Brave is installed and `xdg-settings get default-web-browser` is not `brave-browser.desktop`, an interactive apply asks `Make Brave the default browser? [y/N]`. Yes runs `xdg-settings set default-web-browser brave-browser.desktop`. No is saved in `~/.config/groundwork/brave-default-declined`. Delete that file to be asked again. `update-all`, and any run without a terminal, print at most one notice with that command and do not change the default. A saved decline prints nothing.
+Brave becomes the default once, automatically (Jason's decision, 2026-10-30; contract in groundwork-core `docs/browser.md`, "Setting the default"). The steps:
+
+1. Brave is installed and `xdg-settings get default-web-browser` is not already `brave-browser.desktop`. If it already is, Groundwork only records that and never touches it again.
+2. A desktop session exists (`DISPLAY` or `WAYLAND_DISPLAY`). With none (SSH, cron, WSL, headless), Groundwork changes nothing and prints one line saying to run `install-brave.sh` from a terminal on the desktop.
+3. A launch check passes. Groundwork says a Brave window will open, then starts the installed Brave with a throwaway profile (`--user-data-dir` in a temporary directory, a private `HOME` and `XDG_*` directories, no caller environment other than the display variables, no core dumps). It must stay up for 5 seconds, then close on SIGTERM within 10 seconds with status 0. The temporary directory is deleted. Your Brave profile is never opened. A crash, early exit, or hang prints one line, changes nothing, and is not remembered, so the next run checks again.
+4. If the current default is unset or the distribution's stock browser (`firefox.desktop`, `firefox-esr.desktop`, `org.mozilla.firefox.desktop`, `firefox_firefox.desktop`, `org.gnome.Epiphany.desktop`), Groundwork runs `xdg-settings set default-web-browser brave-browser.desktop` without asking, whether or not a terminal is present. `update-all` included. It then verifies with `xdg-settings get default-web-browser` and prints one line saying so and how to switch back: `xdg-settings set default-web-browser <previous>`, or the desktop's Default Applications settings when there was no previous default.
+5. Any other default was chosen by the person, so it only gets the offer: `Make Brave the default browser? [y/N]` in a terminal. Yes does the switch above. No is saved in `~/.config/groundwork/brave-default-declined`. Without a terminal, one line shows the command and nothing changes.
+
+The switch is recorded in `~/.config/groundwork/brave-default-set` only after `xdg-settings get` confirms it. With that file present, Groundwork never switches or offers again, so a default you pick later stays. A saved decline also stops every later switch and offer. Delete either file to let Groundwork decide again. An unset default counts as stock. Groundwork cannot tell Firefox you chose on Ubuntu from the packaged default, so it treats that as stock.
 
 ### Policies and Bitwarden
 
@@ -72,7 +80,7 @@ If Chrome or Chromium is on `PATH`, Groundwork prints one line about importing a
 
 ### What the fixture tests do not prove
 
-The tests stub `apt`, `dnf`, `zypper`, `sudo`, and `xdg-settings`. They do not install Brave. On a real Ubuntu or Fedora desktop, still check that Brave installs, `brave://policy` shows these policies, the default changes only after a yes, and Bitwarden is offered.
+The tests stub `apt`, `dnf`, `zypper`, `sudo`, and `xdg-settings`. They use a fake Brave that stays up or crashes on request, so they do not prove a real window opens or that `xdg-settings` works on any desktop. On a real Ubuntu or Fedora desktop, still check that Brave installs, `brave://policy` shows these policies, the launch check opens and closes a window, `xdg-settings get default-web-browser` prints `brave-browser.desktop` once and stays on a later choice, and Bitwarden is offered.
 
 ### Remove Groundwork's Brave configuration
 
