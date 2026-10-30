@@ -378,10 +378,14 @@ class BraveInstallTests(unittest.TestCase):
         tag = subprocess.run(['git', 'config', '--file', str(REPO / '.gitmodules'), 'submodule.core.branch'],
                              check=True, capture_output=True, text=True, env=env).stdout.strip()
         self.assertRegex(tag, r'^v\d+\.\d+\.\d+$')
-        sha = subprocess.run(['git', '-C', str(REPO / 'core'), 'rev-parse', 'HEAD'],
+        sha = subprocess.run(['git', '-C', str(REPO), 'rev-parse', 'HEAD:core'],
                              check=True, capture_output=True, text=True, env=env).stdout.strip()
-        tagged = subprocess.run(['git', '-C', str(REPO / 'core'), 'rev-parse', tag + '^{commit}'],
-                                check=True, capture_output=True, text=True, env=env).stdout.strip()
+        # CI checks core out at the gitlink commit without tags, so ask the remote.
+        listing = subprocess.run(['git', 'ls-remote', 'https://github.com/jasondockery/groundwork-core.git',
+                                  f'refs/tags/{tag}', f'refs/tags/{tag}^{{}}'],
+                                 check=True, capture_output=True, text=True, env=env).stdout.splitlines()
+        # An annotated tag lists its commit last, on the peeled ^{} line.
+        tagged = listing[-1].split()[0]
         self.assertEqual(sha, tagged)
         self.assertTrue((REPO / 'core' / 'browser' / 'brave.json').is_file())
 
