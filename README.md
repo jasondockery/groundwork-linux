@@ -10,6 +10,8 @@ Clone this repo over HTTPS into a new directory; keep an old Groundwork checkout
 
 `GROUNDWORK_ENGINE_DIR` selects the shared engine checkout, defaulting to `~/code/groundwork-mac`. `GROUNDWORK_REPO_URL` selects its Git URL, defaulting to `https://github.com/jasondockery/groundwork-mac.git`. Public HTTPS access needs no GitHub login. If your existing engine uses SSH, set this variable to that exact origin URL before running the wrapper; its remote is preserved. Existing engine checkouts must match that URL and be clean. The engine's own platform checks and installation requirements remain authoritative; this wrapper does not broaden supported architectures or desktop promises.
 
+`bash bootstrap.sh` also installs the commit identity guard from the `core` pin: user-level hooks that apply only in repositories whose GitHub remote is yours, never globally. Opt out with `groundwork-commit-guard off`; check with `groundwork-commit-guard doctor`. See [commit identity guard](docs/commit-identity.md).
+
 Read [Tailscale setup](docs/tailscale.md), choose the terminal multiplexer with `groundwork-configure`, and use its live prefix help. The target is Omarchy's `Ctrl+Space`, Alt+Enter splits, Ctrl+Alt+arrow pane focus, and matching tab/session actions. Existing selections and local overrides remain yours; choosing Both keeps tmux available alongside Herdr for tmux lessons.
 
 ## Updates and ownership
@@ -56,7 +58,7 @@ The same desktops offer [Brave](https://brave.com/linux/) from Brave's official 
 
 ## History purges (opt-in)
 
-`bash bootstrap.sh --with-git-filter-repo` installs `git-filter-repo` for your user with pipx, with no root. It is off by default and is never installed otherwise. Setup never rewrites history. The procedure is the shared [history purge runbook](https://github.com/jasondockery/groundwork-core/blob/v0.8.1/docs/history-purge.md); the proof check and removal are in [git-filter-repo](docs/git-filter-repo.md).
+`bash bootstrap.sh --with-git-filter-repo` installs `git-filter-repo` for your user with pipx, with no root. It is off by default and is never installed otherwise. Setup never rewrites history. The procedure is the shared [history purge runbook](https://github.com/jasondockery/groundwork-core/blob/v0.9.0/docs/history-purge.md); the proof check and removal are in [git-filter-repo](docs/git-filter-repo.md).
 
 ## License
 

@@ -20,5 +20,6 @@ jobs:
       - run: bash -n install-git-filter-repo.sh
       - run: bash -n install-desktop-apps.sh
       - run: bash -n install-brave.sh
+      - run: python3 -B -m py_compile groundwork-commit-guard.py
       - run: bash -n engine-hooks/run_after_33-groundwork-linux-desktop-apps.sh
       - run: python3 -B -m unittest discover -s tests -v
