@@ -1,7 +1,7 @@
 """Brave installer fixtures. Package managers, sudo, and xdg-settings are stubs.
 
-Protects: official repo lines per family, skip rules, deferred installs, default
-offer, Chrome notice, and policy JSON rendered from core.
+Protects: official repo lines per family, skip rules, deferred installs, the
+once-only automatic default and its launch check, Chrome notice, and policy JSON rendered from core.
 Boundary: the install-brave.sh process, with hostile command stand-ins.
 Distinct value: FreeTube tests do not cover Brave, sudo, or the core spec.
 """
@@ -18,7 +18,7 @@ import time
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
-CORE_SHA = '0395895c86ed24d942c3803c521cf2131cfa52c7'
+CORE_SHA = '5c8526102170d8f9a9b0a7d102dfdc0a3b66e20d'
 KEY_URL = 'https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg'
 SOURCES_URL = 'https://brave-browser-apt-release.s3.brave.com/brave-browser.sources'
 RPM_URL = 'https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo'
@@ -36,7 +36,17 @@ with (root / 'calls').open('a') as log:
 def ensure_binary():
     path = pathlib.Path(os.environ['GROUNDWORK_ROOT']) / 'usr/bin/brave-browser'
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text('#!/bin/sh\n')
+    mode = os.environ.get('FIXTURE_BRAVE_MODE', 'ok')
+    if mode == 'crash':
+        body = 'exit 139\n'
+    elif mode == 'hang':
+        body = "trap '' TERM\nwhile :; do sleep 1; done\n"
+    elif mode == 'badexit':
+        body = "trap 'exit 3' TERM\nwhile :; do sleep 1; done\n"
+    else:
+        body = "trap 'exit 0' TERM\nwhile :; do sleep 1; done\n"
+    log = str(path.parent / 'brave-launch.log')
+    path.write_text('#!/bin/sh\n{ echo "ARGS $*"; env; } > ' + log + '\n' + body)
     path.chmod(0o755)
 
 def ensure_repo(relative):
@@ -198,7 +208,8 @@ elif name == 'xdg-settings':
         else:
             print(os.environ.get('FIXTURE_DEFAULT_BROWSER', ''))
     elif args[:2] == ['set', 'default-web-browser']:
-        state.write_text(args[2] + '\n')
+        if os.environ.get('FIXTURE_XDG_IGNORE_SET') != '1':
+            state.write_text(args[2] + '\n')
     else:
         raise SystemExit('unexpected xdg-settings')
 elif name == 'flatpak':
@@ -247,7 +258,7 @@ class BraveInstallTests(unittest.TestCase):
         stub.chmod(0o755)
         for name in ('uname', 'sudo', 'xdg-settings', 'flatpak', 'snap', 'curl', 'gpg'):
             (self.bin / name).symlink_to(stub)
-        for name in ('grep', 'head', 'bash', 'python3', 'mktemp', 'cmp', 'rm', 'mkdir', 'dirname'):
+        for name in ('grep', 'head', 'bash', 'python3', 'mktemp', 'cmp', 'rm', 'mkdir', 'dirname', 'env', 'sleep', 'chmod', 'setsid'):
             (self.bin / name).symlink_to(shutil.which(name))
         self.os_release = self.root / 'os-release'
         self.write_os_release(ID='ubuntu', VERSION_ID='"24.04"', ID_LIKE='debian')
@@ -259,12 +270,14 @@ class BraveInstallTests(unittest.TestCase):
                         GROUNDWORK_OSRELEASE_FILE=str(self.root / 'kernel-osrelease'),
                         GROUNDWORK_OMARCHY_DIR=str(self.root / 'not-omarchy'),
                         GROUNDWORK_OSTREE_FILE=str(self.root / 'no-ostree'),
+                        GROUNDWORK_BRAVE_SETTLE_SECONDS='1', GROUNDWORK_BRAVE_CLOSE_SECONDS='2',
                         DISPLAY=':0')
         for key in ('WAYLAND_DISPLAY', 'WSL_DISTRO_NAME', 'WSL_INTEROP',
                     'GROUNDWORK_UPDATE_SCOPE', 'XDG_CONFIG_HOME', 'GROUNDWORK_BRAVE_SPEC',
                     'FIXTURE_OS', 'FIXTURE_DEFAULT_BROWSER', 'FIXTURE_SUDO_NONINTERACTIVE',
                     'FIXTURE_SUDO_PASSWORD', 'FIXTURE_CURL_EXIT', 'FIXTURE_CURL_HOLD',
-                    'FIXTURE_CURL_BODY', 'FIXTURE_APT_CURL_FAIL',
+                    'FIXTURE_CURL_BODY', 'FIXTURE_APT_CURL_FAIL', 'FIXTURE_BRAVE_MODE', 'FIXTURE_XDG_IGNORE_SET',
+                    'SSH_CONNECTION', 'SSH_TTY', 'XDG_RUNTIME_DIR', 'XAUTHORITY',
                     'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
             self.env.pop(key, None)
 
@@ -359,7 +372,7 @@ class BraveInstallTests(unittest.TestCase):
         self.assertEqual(code, status, text)
         return text
 
-    def test_core_submodule_is_groundwork_core_v070(self):
+    def test_core_submodule_is_groundwork_core_v080(self):
         env = os.environ.copy()
         for key in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
             env.pop(key, None)
@@ -424,7 +437,7 @@ class BraveInstallTests(unittest.TestCase):
                 key_path = self.root / 'usr/share/keyrings/brave-browser-archive-keyring.gpg'
                 key_path.parent.mkdir(parents=True)
                 key_path.write_text('stale\n')
-                self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+                self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
                 curl_calls = [call for call in self.calls() if call[0] == 'curl']
                 self.assertTrue(any(
                     call[1:4] == ['--max-time', '60', '-fsSLo'] and call[-1] == KEY_URL
@@ -440,7 +453,7 @@ class BraveInstallTests(unittest.TestCase):
 
     def test_debian_installs_curl_before_the_keyring_when_curl_is_missing(self):
         (self.bin / 'curl').unlink()
-        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
         apt_curl = key_curl = None
         for index, call in enumerate(self.calls()):
             if call[0] == 'sudo' and 'apt-get' in call and 'curl' in call:
@@ -483,7 +496,7 @@ class BraveInstallTests(unittest.TestCase):
         self.assertFalse((self.root / 'usr/bin/brave-browser').exists())
         self.env.pop('FIXTURE_CURL_EXIT')
         self.reset_calls()
-        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
         self.assertIn('BEGIN PGP PUBLIC KEY BLOCK', key.read_text())
         self.assertIn('Signed-By: /usr/share/keyrings/brave-browser-archive-keyring.gpg',
                       sources.read_text())
@@ -531,7 +544,7 @@ class BraveInstallTests(unittest.TestCase):
             with self.subTest(fields=fields):
                 self.reset_install_state()
                 self.write_os_release(**fields)
-                self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+                self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
                 binary = self.root / 'usr' / 'bin' / 'brave-browser'
                 calls = self.sudo_calls()
                 self.assertIn(expected, calls)
@@ -560,7 +573,7 @@ class BraveInstallTests(unittest.TestCase):
                 self.write_os_release(**fields)
                 self.state_path('brave-rpm-repo-added').parent.mkdir(parents=True)
                 self.state_path('brave-rpm-repo-added').write_text('old\n')
-                self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+                self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
                 self.assertIn(expected, self.sudo_calls())
                 self.assertTrue(repo.is_file())
                 self.assertGreater(repo.stat().st_size, 0)
@@ -572,7 +585,7 @@ class BraveInstallTests(unittest.TestCase):
                 self.state_path('brave-rpm-repo-added').write_text('old\n')
                 repo.parent.mkdir(parents=True)
                 repo.write_text('')
-                self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+                self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
                 calls = self.sudo_calls()
                 self.assertIn(expected, calls)
                 self.assertLess(calls.index(['rm', '-f', '--', str(repo)]), calls.index(expected))
@@ -584,7 +597,7 @@ class BraveInstallTests(unittest.TestCase):
         repo.write_text('repo\n')
         self.state_path('brave-rpm-repo-added').parent.mkdir(parents=True)
         self.state_path('brave-rpm-repo-added').write_text('old\n')
-        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
         calls = self.sudo_calls()
         self.assertFalse(any('addrepo' in call or '--add-repo' in call for call in calls))
         self.assertTrue(any('dnf' in call and 'brave-browser' in call for call in calls))
@@ -596,7 +609,7 @@ class BraveInstallTests(unittest.TestCase):
         self.assertEqual(self.sudo_calls(), [])
         self.assertFalse((self.root / 'usr' / 'bin' / 'brave-browser').exists())
         (self.bin / 'yay').symlink_to(self.bin / 'stub')
-        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
         self.assertIn(['yay', '-Sy', '--noconfirm', 'brave-bin'], self.calls())
         self.assertNotIn('paru', [call[0] for call in self.calls()])
 
@@ -615,7 +628,7 @@ class BraveInstallTests(unittest.TestCase):
 
     def test_policy_matches_core_and_a_second_run_is_idempotent(self):
         spec = json.loads((REPO / 'core' / 'browser' / 'brave.json').read_text())
-        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
         written = json.loads(self.policy_path().read_text())
         self.assertEqual(written, applicable_policies(spec))
         self.assertIn('BraveAIChatEnabled', written)
@@ -706,32 +719,218 @@ class BraveInstallTests(unittest.TestCase):
         self.assertFalse(self.extension_path().exists())
         self.assertFalse(self.policy_path().exists())
 
-    def test_default_offer_accepted_declined_and_notice(self):
-        accepted = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'y')])
-        self.assertIn('now the default browser', accepted)
-        self.assertIn(['set', 'default-web-browser', DESKTOP_ID],
-                      [call[1:] for call in self.calls() if call[0] == 'xdg-settings'])
+    def xdg_sets(self):
+        return [call[1:] for call in self.calls() if call[0] == 'xdg-settings' and call[1] == 'set']
+
+    def launch_log(self):
+        return (self.root / 'usr' / 'bin' / 'brave-launch.log').read_text()
+
+    def test_stock_default_switches_once_after_the_launch_check(self):
+        self.env['FIXTURE_DEFAULT_BROWSER'] = 'firefox.desktop'
+        text = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        self.assertIn('a Brave window with a throwaway profile opens', text)
+        self.assertIn('Brave is now the default browser', text)
+        self.assertIn('xdg-settings set default-web-browser firefox.desktop', text)
+        self.assertEqual(self.xdg_sets(), [['set', 'default-web-browser', DESKTOP_ID]])
+        self.assertEqual((self.root / 'default-browser').read_text().strip(), DESKTOP_ID)
+        self.assertTrue(self.state_path('brave-default-set').is_file())
+        self.assertFalse(self.state_path('brave-default-declined').exists())
+
+    def test_launch_uses_a_throwaway_profile_and_a_private_environment(self):
+        self.env['SECRET_TOKEN'] = 'leak'
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        log = self.launch_log()
+        self.assertIn('--user-data-dir=', log)
+        self.assertNotIn(str(self.root / '.config'), log)
+        self.assertIn('--no-first-run', log)
+        self.assertNotIn('--headless', log)
+        self.assertNotIn('SECRET_TOKEN', log)
+        self.assertNotIn('WRAPPER_FIXTURE', log)
+        self.assertNotIn(f'HOME={self.root}\n', log)
+        data_dir = [line for line in log.splitlines() if '--user-data-dir=' in line][0].split('=', 1)[1]
+        self.assertFalse(Path(data_dir).exists())
+
+    def test_launch_gets_a_private_runtime_dir_and_only_the_display(self):
+        self.env['XDG_RUNTIME_DIR'] = '/run/user/fixture'
+        self.env['WAYLAND_DISPLAY'] = 'wayland-0'
+        self.env['DBUS_SESSION_BUS_ADDRESS'] = 'unix:path=/run/user/fixture/bus'
+        self.env['XAUTHORITY'] = '/fixture/xauth'
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        log = self.launch_log()
+        lines = log.splitlines()
+        runtime = [l for l in lines if l.startswith('XDG_RUNTIME_DIR=')][0].split('=', 1)[1]
+        self.assertNotEqual(runtime, '/run/user/fixture')
+        self.assertTrue(runtime.endswith('/run'))
+        self.assertNotIn('DBUS_SESSION_BUS_ADDRESS', log)
+        self.assertIn('WAYLAND_DISPLAY=/run/user/fixture/wayland-0', lines)
+        self.assertIn('DISPLAY=:0', lines)
+        self.assertIn('XAUTHORITY=/fixture/xauth', lines)
+
+    def test_x11_launch_passes_no_wayland_or_session_variables(self):
+        self.env['XDG_RUNTIME_DIR'] = '/run/user/fixture'
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        log = self.launch_log()
+        self.assertNotIn('WAYLAND_DISPLAY', log)
+        self.assertNotIn('/run/user/fixture', log)
+
+    def test_ssh_session_defers_even_with_x11_forwarding(self):
+        self.env['FIXTURE_DEFAULT_BROWSER'] = 'firefox.desktop'
+        for key in ('SSH_CONNECTION', 'SSH_TTY'):
+            with self.subTest(key=key):
+                self.reset_install_state()
+                self.env.pop('SSH_CONNECTION', None)
+                self.env.pop('SSH_TTY', None)
+                self.env[key] = 'fixture'
+                self.env['DISPLAY'] = 'localhost:10.0'
+                text = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+                self.assertIn('no desktop session', text)
+                self.assertEqual(self.xdg_sets(), [])
+                self.assertFalse((self.root / 'usr' / 'bin' / 'brave-launch.log').exists())
+
+    def test_other_default_is_asked_before_the_window_opens(self):
+        self.env['FIXTURE_DEFAULT_BROWSER'] = 'vivaldi-stable.desktop'
+        text = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+        self.assertNotIn('Checking that Brave starts', text)
+        self.assertFalse((self.root / 'usr' / 'bin' / 'brave-launch.log').exists())
+        self.assertTrue(self.state_path('brave-default-declined').is_file())
+
+    def test_chromium_is_stock_only_on_raspberry_pi_os(self):
+        self.env['FIXTURE_DEFAULT_BROWSER'] = 'chromium.desktop'
+        text = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+        self.assertIn('Make Brave the default browser?', text)
+        self.reset_install_state()
+        self.write_os_release(ID='raspbian', VERSION_ID='"12"', ID_LIKE='debian')
+        text = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        self.assertNotIn('Make Brave the default browser?', text)
+        self.assertIn('Brave is now the default browser', text)
+
+    def test_default_is_never_switched_a_second_time(self):
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
         self.root.joinpath('default-browser').write_text('firefox.desktop\n')
         self.reset_calls()
-        self.env['GROUNDWORK_UPDATE_SCOPE'] = 'maintenance'
-        notice = self.run_script()
-        self.assertEqual(notice.stdout.count('Brave is not the default browser'), 1)
-        self.assertIn('xdg-settings set default-web-browser brave-browser.desktop', notice.stdout)
-        self.assertNotIn(['set', 'default-web-browser', DESKTOP_ID],
-                         [call[1:] for call in self.calls() if call[0] == 'xdg-settings'])
-        self.env.pop('GROUNDWORK_UPDATE_SCOPE')
-        self.env['DISPLAY'] = ':0'
-        self.root.joinpath('default-browser').unlink()
-        declined = self.run_pty([(b'[y/N]', 'n')])
+        (self.root / 'usr' / 'bin' / 'brave-launch.log').unlink()
+        again = self.run_pty([])
+        self.assertNotIn('[y/N]', again)
+        self.assertNotIn('Checking that Brave starts', again)
+        self.assertEqual(self.xdg_sets(), [])
+        self.assertEqual(self.root.joinpath('default-browser').read_text().strip(), 'firefox.desktop')
+        self.assertFalse((self.root / 'usr' / 'bin' / 'brave-launch.log').exists())
+
+    def test_brave_already_the_default_is_recorded_without_a_launch(self):
+        self.env['FIXTURE_DEFAULT_BROWSER'] = DESKTOP_ID
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        self.assertTrue(self.state_path('brave-default-set').is_file())
+        self.assertEqual(self.xdg_sets(), [])
+        self.assertFalse((self.root / 'usr' / 'bin' / 'brave-launch.log').exists())
+
+    def test_other_default_gets_the_offer_and_a_no_is_saved(self):
+        self.env['FIXTURE_DEFAULT_BROWSER'] = 'vivaldi-stable.desktop'
+        declined = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
         self.assertIn('will not ask again', declined)
         self.assertTrue(self.state_path('brave-default-declined').is_file())
+        self.assertFalse(self.state_path('brave-default-set').exists())
+        self.assertEqual(self.xdg_sets(), [])
         self.reset_calls()
         again = self.run_pty([])
         self.assertNotIn('[y/N]', again)
-        self.assertEqual([call for call in self.calls() if call[0] == 'xdg-settings' and call[1] == 'set'], [])
+        self.assertEqual(self.xdg_sets(), [])
+
+    def test_other_default_offer_accepted_sets_and_records(self):
+        self.env['FIXTURE_DEFAULT_BROWSER'] = 'vivaldi-stable.desktop'
+        text = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'y')])
+        self.assertIn('Brave is now the default browser', text)
+        self.assertEqual(self.xdg_sets(), [['set', 'default-web-browser', DESKTOP_ID]])
+        self.assertTrue(self.state_path('brave-default-set').is_file())
+
+    def test_saved_decline_blocks_the_automatic_switch(self):
+        self.state_path('brave-default-declined').parent.mkdir(parents=True)
+        self.state_path('brave-default-declined').write_text('')
+        self.env['FIXTURE_DEFAULT_BROWSER'] = 'firefox.desktop'
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        self.assertEqual(self.xdg_sets(), [])
+        self.assertFalse(self.state_path('brave-default-set').exists())
+
+    def test_failed_launch_checks_do_not_change_or_record_the_default(self):
+        for mode, reason in (('crash', 'status 139'), ('hang', 'did not close'), ('badexit', 'status 3')):
+            with self.subTest(mode=mode):
+                self.reset_install_state()
+                self.env['FIXTURE_BRAVE_MODE'] = mode
+                self.env['FIXTURE_DEFAULT_BROWSER'] = 'firefox.desktop'
+                text = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+                self.assertIn("launch check did not pass", text)
+                self.assertIn(reason, text)
+                self.assertEqual(self.xdg_sets(), [])
+                self.assertFalse(self.state_path('brave-default-set').exists())
+                self.assertFalse(self.state_path('brave-default-declined').exists())
+
+    def test_default_not_confirmed_by_xdg_settings_get_is_not_recorded(self):
+        self.env['FIXTURE_DEFAULT_BROWSER'] = 'firefox.desktop'
+        self.env['FIXTURE_XDG_IGNORE_SET'] = '1'
+        text = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        self.assertIn('The default browser was not changed', text)
+        self.assertFalse(self.state_path('brave-default-set').exists())
+
+    def test_no_desktop_session_defers_the_default_with_one_line(self):
+        self.env['FIXTURE_DEFAULT_BROWSER'] = 'firefox.desktop'
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        self.reset_install_state()
+        self.env['GROUNDWORK_UPDATE_SCOPE'] = 'maintenance'
+        self.env['FIXTURE_SUDO_NONINTERACTIVE'] = '1'
+        self.run_script()
+        self.reset_install_state()
+        self.env.pop('GROUNDWORK_UPDATE_SCOPE')
+        self.env.pop('FIXTURE_SUDO_NONINTERACTIVE')
+        # headless = false in chezmoi config overrides the display check at the top.
+        config = self.root / '.config' / 'chezmoi' / 'chezmoi.toml'
+        config.parent.mkdir(parents=True)
+        config.write_text('headless = false\n')
+        self.env.pop('DISPLAY')
+        text = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        self.assertEqual(text.count('no desktop session'), 1)
+        self.assertEqual(self.xdg_sets(), [])
+        self.assertFalse(self.state_path('brave-default-set').exists())
+
+    def test_update_all_in_a_desktop_session_switches_a_stock_default_once(self):
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        self.state_path('brave-default-set').unlink()
+        self.root.joinpath('default-browser').write_text('firefox.desktop\n')
+        self.reset_calls()
+        self.env['GROUNDWORK_UPDATE_SCOPE'] = 'maintenance'
+        first = self.run_script()
+        self.assertIn('Brave is now the default browser', first.stdout)
+        self.assertEqual(self.xdg_sets(), [['set', 'default-web-browser', DESKTOP_ID]])
+        self.root.joinpath('default-browser').write_text('firefox.desktop\n')
+        self.reset_calls()
+        second = self.run_script()
+        self.assertNotIn('default browser', second.stdout)
+        self.assertEqual(self.xdg_sets(), [])
+
+    def test_no_terminal_apply_switches_stock_but_only_prints_for_other_defaults(self):
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        self.state_path('brave-default-set').unlink()
+        self.root.joinpath('default-browser').write_text('vivaldi-stable.desktop\n')
+        self.reset_calls()
+        other = self.run_script()
+        self.assertEqual(self.xdg_sets(), [])
+        self.assertEqual(other.stdout.count('Brave is not the default browser.'), 1)
+        self.assertIn('xdg-settings set default-web-browser brave-browser.desktop', other.stdout)
+        self.assertNotIn('Checking that Brave starts', other.stdout)
+        self.root.joinpath('default-browser').write_text('firefox.desktop\n')
+        stock = self.run_script()
+        self.assertEqual(self.xdg_sets(), [['set', 'default-web-browser', DESKTOP_ID]])
+        self.assertIn('Brave is now the default browser', stock.stdout)
+
+    def test_configuration_apply_keeps_brave_and_still_makes_the_one_time_switch(self):
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        self.state_path('brave-default-set').unlink()
+        self.root.joinpath('default-browser').write_text('firefox.desktop\n')
+        self.env['GROUNDWORK_UPDATE_SCOPE'] = 'configuration'
+        result = self.run_script()
+        self.assertIn('keeping the installed Brave', result.stdout)
+        self.assertIn('Brave is now the default browser', result.stdout)
 
     def test_extension_offer_is_written_only_after_yes(self):
-        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'y'), (b'[y/N]', 'n')])
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'y')])
         payload = json.loads(self.extension_path().read_text())
         self.assertEqual(payload, {'external_update_url': 'https://clients2.google.com/service/update2/crx'})
         writes = [call for call in self.sudo_calls()
@@ -781,13 +980,13 @@ class BraveInstallTests(unittest.TestCase):
         self.assertFalse((self.root / 'usr' / 'bin' / 'brave-browser').exists())
         self.state_path('brave-repo-move-declined').unlink()
         self.reset_calls()
-        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'y'), (b'[y/N]', 'n')])
         self.assertTrue((self.root / 'usr' / 'bin' / 'brave-browser').exists())
         self.assertEqual((data / 'profile').read_text(), 'keep\n')
         self.assertFalse(any('uninstall' in call for call in self.calls()))
 
     def test_configuration_keeps_an_installed_brave_and_maintenance_does_not_install(self):
-        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'n')])
+        self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n')])
         self.reset_calls()
         self.env['GROUNDWORK_UPDATE_SCOPE'] = 'configuration'
         kept = self.run_script()
@@ -827,6 +1026,7 @@ class BraveInstallTests(unittest.TestCase):
         self.assertFalse(self.policy_path().exists())
         self.assertFalse((self.root / 'usr' / 'bin' / 'brave-browser').exists())
         self.reset_calls()
+        self.env['FIXTURE_DEFAULT_BROWSER'] = 'vivaldi-stable.desktop'
         default_eof = self.run_pty([(b'[y/N]', 'y'), (b'[y/N]', 'n'), (b'[y/N]', 'EOF')])
         self.assertIn('was not changed', default_eof)
         self.assertFalse(self.state_path('brave-default-declined').exists())
@@ -839,7 +1039,6 @@ class BraveInstallTests(unittest.TestCase):
         text = self.run_pty([
             (b'[y/N]', 'y'),
             (b'Password:', 'secret'),
-            (b'[y/N]', 'n'),
             (b'[y/N]', 'n'),
         ])
         self.assertLess(text.index('if sudo asks for a password'), text.index('Password:'))
