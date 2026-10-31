@@ -10,6 +10,8 @@ Clone this repo over HTTPS into a new directory; keep an old Groundwork checkout
 
 `GROUNDWORK_ENGINE_DIR` selects the shared engine checkout, defaulting to `~/code/groundwork-mac`. `GROUNDWORK_REPO_URL` selects its Git URL, defaulting to `https://github.com/jasondockery/groundwork-mac.git`. Public HTTPS access needs no GitHub login. If your existing engine uses SSH, set this variable to that exact origin URL before running the wrapper; its remote is preserved. Existing engine checkouts must match that URL and be clean. The engine's own platform checks and installation requirements remain authoritative; this wrapper does not broaden supported architectures or desktop promises.
 
+The commit identity guard is installed by the shared engine's apply, not by this repository. See [commit identity guard](docs/commit-identity.md).
+
 Read [Tailscale setup](docs/tailscale.md), choose the terminal multiplexer with `groundwork-configure`, and use its live prefix help. The target is Omarchy's `Ctrl+Space`, Alt+Enter splits, Ctrl+Alt+arrow pane focus, and matching tab/session actions. Existing selections and local overrides remain yours; choosing Both keeps tmux available alongside Herdr for tmux lessons.
 
 ## Updates and ownership

@@ -11,3 +11,5 @@ Use [groundwork-core](https://github.com/jasondockery/groundwork-core) for share
 Omarchy's keybindings and conventions are the target where they fit. T3 Code Nightly and Herdr must stay available through the shared engine, with local provider authentication. Do not restore old Groundwork shortcuts merely because they appear in historical docs.
 
 Parse arguments before side effects. Help and invalid input must not mutate anything. Preserve local configuration, SSH credentials, Git identities, and old checkouts during migration. Run Bash syntax and isolated wrapper tests for changes; never claim native desktop, package, or cross-machine acceptance from fixtures.
+
+The commit identity guard belongs to the `groundwork-mac` engine (`run_after_24-commit-identity-guard.sh.tmpl`). Do not add an installer here; two installers fight over the dispatcher and the guard symlink. Documentation lives in `docs/commit-identity.md`.
