@@ -127,7 +127,8 @@ class EasyEffectsTests(unittest.TestCase):
 
     def test_help_and_invalid_input_have_no_external_effects(self):
         native, flatpak = self.plant_config()
-        self.run_installer('--help')
+        helped = self.run_installer('--help')
+        self.assertIn('distribution package or system Flatpak', helped.stdout)
         self.run_installer('-h')
         self.run_installer('--typo', status=64)
         self.run_installer('install', status=64)

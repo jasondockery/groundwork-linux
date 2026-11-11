@@ -22,7 +22,7 @@ usage() {
   echo "Install or update EasyEffects, the Flathub user Flatpak ${APP_ID}."
   echo "Headless and WSL targets skip it. Omarchy is refused."
   echo "A machine without PipeWire skips it. EasyEffects needs PipeWire."
-  echo "A distribution package already installed is kept."
+  echo "A distribution package or system Flatpak already installed is kept."
   echo "Groundwork does not write EasyEffects settings."
   echo "update-all updates an existing user Flatpak. A configuration-only apply keeps one."
 }

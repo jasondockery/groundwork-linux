@@ -26,11 +26,13 @@ installations receive the new command on their next successful `update-all`.
 Use `groundwork-configure` to change preferences.
 
 On a Linux desktop, `update-all` also installs or updates FreeTube, the Flathub
-user Flatpak `io.freetubeapp.FreeTube`, and EasyEffects, the Flathub user
-Flatpak `com.github.wwmm.easyeffects`, when PipeWire is available.
-`groundwork-update` installs those Flatpaks when they are missing and leaves an
-existing install unchanged. The same apply installs Brave from Brave's official
-package repository and makes it the default browser once. `update-all` does not install or upgrade Brave. The
+user Flatpak `io.freetubeapp.FreeTube`. When PipeWire is available, the same
+apply installs or updates EasyEffects, the Flathub user Flatpak
+`com.github.wwmm.easyeffects`. `groundwork-update` installs a missing FreeTube
+or EasyEffects Flatpak and leaves an existing install unchanged. EasyEffects
+still skips when PipeWire is not available. The same apply installs Brave from
+Brave's official package repository and makes it the default browser once.
+`update-all` does not install or upgrade Brave. The
 distribution's updater upgrades an installed Brave from that repository. With
 no terminal, `update-all` prints one notice and leaves Brave uninstalled. When
 Brave is already installed, it rewrites managed policies when they changed.
