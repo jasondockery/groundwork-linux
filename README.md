@@ -6,7 +6,7 @@ The existing shared provisioning implementation currently lives in `groundwork-m
 
 ## Setup
 
-Clone this repo over HTTPS into a new directory; keep an old Groundwork checkout in place. Install Git and chezmoi through their supported OS sources first. Run `git submodule update --init core` so setup can read the Brave spec in groundwork-core. A Linux desktop also needs Flatpak from the distribution (Ubuntu/Debian: `sudo apt install flatpak`) so setup can install FreeTube, and administrator permission when you choose to install Brave. Headless and WSL targets skip those apps. Read `bootstrap.sh`, then run `bash bootstrap.sh` on Linux. For an existing installation, use [migration](docs/migration.md) instead so you can preview the new source before applying it.
+Clone this repo over HTTPS into a new directory; keep an old Groundwork checkout in place. Install Git and chezmoi through their supported OS sources first. Run `git submodule update --init core` so setup can read the Brave spec in groundwork-core. A Linux desktop also needs Flatpak from the distribution (Ubuntu/Debian: `sudo apt install flatpak`) so setup can install FreeTube and EasyEffects, and administrator permission when you choose to install Brave. Headless and WSL targets skip those apps. EasyEffects also skips a machine without PipeWire. Read `bootstrap.sh`, then run `bash bootstrap.sh` on Linux. For an existing installation, use [migration](docs/migration.md) instead so you can preview the new source before applying it.
 
 `GROUNDWORK_ENGINE_DIR` selects the shared engine checkout, defaulting to `~/code/groundwork-mac`. `GROUNDWORK_REPO_URL` selects its Git URL, defaulting to `https://github.com/jasondockery/groundwork-mac.git`. Public HTTPS access needs no GitHub login. If your existing engine uses SSH, set this variable to that exact origin URL before running the wrapper; its remote is preserved. Existing engine checkouts must match that URL and be clean. The engine's own platform checks and installation requirements remain authoritative; this wrapper does not broaden supported architectures or desktop promises.
 
@@ -26,10 +26,11 @@ installations receive the new command on their next successful `update-all`.
 Use `groundwork-configure` to change preferences.
 
 On a Linux desktop, `update-all` also installs or updates FreeTube, the Flathub
-user Flatpak `io.freetubeapp.FreeTube`. `groundwork-update` installs that
-Flatpak when it is missing and leaves an existing install unchanged. The same
-apply installs Brave from Brave's official package repository and makes it the
-default browser once. `update-all` does not install or upgrade Brave. The
+user Flatpak `io.freetubeapp.FreeTube`, and EasyEffects, the Flathub user
+Flatpak `com.github.wwmm.easyeffects`, when PipeWire is available.
+`groundwork-update` installs those Flatpaks when they are missing and leaves an
+existing install unchanged. The same apply installs Brave from Brave's official
+package repository and makes it the default browser once. `update-all` does not install or upgrade Brave. The
 distribution's updater upgrades an installed Brave from that repository. With
 no terminal, `update-all` prints one notice and leaves Brave uninstalled. When
 Brave is already installed, it rewrites managed policies when they changed.
@@ -53,6 +54,8 @@ explains the boundary.
 ## Desktop apps
 
 Linux desktops install [FreeTube](https://freetubeapp.io/) by default: a private YouTube client with no Google sign-in. The package is the Flathub user Flatpak `io.freetubeapp.FreeTube`. Desktop Macs get the official pinned FreeTube disk image from the shared engine. Homebrew disabled the `freetube` cask, so the engine does not declare it. Linux and WSL never receive that disk image. This repository installs the Linux Flatpak and skips it on headless and WSL targets. Groundwork writes no FreeTube settings.
+
+The same desktops install [EasyEffects](https://github.com/wwmm/easyeffects), a PipeWire equalizer, as the Flathub user Flatpak `com.github.wwmm.easyeffects`. Headless machines and WSL skip it. A machine without PipeWire skips it, with a line that says so; EasyEffects does not support PulseAudio. If the distribution package `easyeffects` or a system Flatpak is already installed, Groundwork keeps that copy and does not install a second one. Groundwork writes no EasyEffects settings.
 
 The same desktops offer [Brave](https://brave.com/linux/) from Brave's official package repository and make it the default browser once, with `xdg-settings`, after a short launch check passes (a Brave window opens in a throwaway profile for a few seconds). Groundwork never overrides a default you chose later, respects a saved no, and only offers when your default is not the distribution's stock browser. With no desktop session it defers and prints one line. Policies and the Bitwarden offer are rendered from groundwork-core (`core/browser/brave.json`). Groundwork does not uninstall another browser or delete profile data. See [desktop apps](docs/desktop-apps.md).
 

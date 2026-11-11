@@ -6,7 +6,7 @@ ENGINE_DESKTOP_HOOK=home/run_after_33-groundwork-linux-desktop-apps.sh
 usage() {
   echo "Usage: $0 [--prepare-only] [--with-git-filter-repo]"
   echo "Prepare the shared Groundwork engine, then run its Linux setup."
-  echo "On a Linux desktop, setup registers an apply hook for FreeTube and Brave."
+  echo "On a Linux desktop, setup registers an apply hook for FreeTube, EasyEffects, and Brave."
   echo "--prepare-only clones the engine and prints preview steps without applying it."
   echo "--with-git-filter-repo installs git-filter-repo for your user with pipx, never with root. It is off by default."
   echo "See docs/git-filter-repo.md."
@@ -24,11 +24,12 @@ ignore_engine_desktop_hook() {
 }
 
 install_linux_desktop_apps() {
-  local script_dir helper brave_helper spec_src spec_dest hook_src hook_dest lib
+  local script_dir helper easyeffects_helper brave_helper spec_src spec_dest hook_src hook_dest lib
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   lib="${HOME}/.local/lib/groundwork-linux"
   mkdir -p "$lib"
   helper="${lib}/install-desktop-apps.sh"
+  easyeffects_helper="${lib}/install-easyeffects.sh"
   brave_helper="${lib}/install-brave.sh"
   spec_src="${script_dir}/core/browser/brave.json"
   spec_dest="${lib}/brave.json"
@@ -37,9 +38,10 @@ install_linux_desktop_apps() {
     exit 1
   fi
   cp "${script_dir}/install-desktop-apps.sh" "$helper"
+  cp "${script_dir}/install-easyeffects.sh" "$easyeffects_helper"
   cp "${script_dir}/install-brave.sh" "$brave_helper"
   cp "$spec_src" "$spec_dest"
-  chmod 755 "$helper" "$brave_helper"
+  chmod 755 "$helper" "$easyeffects_helper" "$brave_helper"
   chmod 644 "$spec_dest"
   hook_src="${script_dir}/engine-hooks/run_after_33-groundwork-linux-desktop-apps.sh"
   hook_dest="${engine_dir}/${ENGINE_DESKTOP_HOOK}"

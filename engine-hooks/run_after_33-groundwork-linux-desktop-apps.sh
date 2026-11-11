@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Local apply hook installed by groundwork-linux bootstrap.sh.
 # chezmoi apply runs it, which is how update-all and groundwork-update
-# install FreeTube and Brave (Brave becomes the default once). Each helper owns its skip rules.
+# install FreeTube, EasyEffects, and Brave (Brave becomes the default once).
+# Each helper owns its skip rules.
 # bash 4.0+ (Linux).
 set -euo pipefail
 
@@ -18,12 +19,18 @@ run_helper() {
 }
 
 freetube="${GROUNDWORK_LINUX_DESKTOP_APPS:-$HOME/.local/lib/groundwork-linux/install-desktop-apps.sh}"
+easyeffects="${GROUNDWORK_LINUX_EASYEFFECTS:-$HOME/.local/lib/groundwork-linux/install-easyeffects.sh}"
 brave="${GROUNDWORK_LINUX_BRAVE:-$HOME/.local/lib/groundwork-linux/install-brave.sh}"
 freetube_status=0
+easyeffects_status=0
 brave_status=0
 run_helper "$freetube" "FreeTube" "$@" || freetube_status=$?
+run_helper "$easyeffects" "EasyEffects" "$@" || easyeffects_status=$?
 run_helper "$brave" "Brave" "$@" || brave_status=$?
 if [[ "$freetube_status" -ne 0 ]]; then
   exit "$freetube_status"
+fi
+if [[ "$easyeffects_status" -ne 0 ]]; then
+  exit "$easyeffects_status"
 fi
 exit "$brave_status"

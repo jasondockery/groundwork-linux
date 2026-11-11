@@ -91,6 +91,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertFalse((self.root / 'applied').exists())
         self.assertFalse(self.helper_path().exists())
         self.assertFalse((self.root / '.local' / 'lib' / 'groundwork-linux' / 'install-brave.sh').exists())
+        self.assertFalse((self.root / '.local' / 'lib' / 'groundwork-linux' / 'install-easyeffects.sh').exists())
         self.assertFalse((self.root / '.local' / 'lib' / 'groundwork-linux' / 'brave.json').exists())
         self.assertFalse(self.hook_path().exists())
         result = self.run_wrapper()
@@ -99,9 +100,12 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(self.helper_path().read_text(), (REPO / 'install-desktop-apps.sh').read_text())
         self.assertTrue(os.access(self.helper_path(), os.X_OK))
         brave_helper = self.root / '.local' / 'lib' / 'groundwork-linux' / 'install-brave.sh'
+        easyeffects_helper = self.root / '.local' / 'lib' / 'groundwork-linux' / 'install-easyeffects.sh'
         brave_spec = self.root / '.local' / 'lib' / 'groundwork-linux' / 'brave.json'
         self.assertEqual(brave_helper.read_text(), (REPO / 'install-brave.sh').read_text())
         self.assertTrue(os.access(brave_helper, os.X_OK))
+        self.assertEqual(easyeffects_helper.read_text(), (REPO / 'install-easyeffects.sh').read_text())
+        self.assertTrue(os.access(easyeffects_helper, os.X_OK))
         self.assertEqual(brave_spec.read_text(), (REPO / 'core' / 'browser' / 'brave.json').read_text())
         self.assertFalse(os.access(brave_spec, os.X_OK))
         self.assertEqual(self.hook_path().read_text(),

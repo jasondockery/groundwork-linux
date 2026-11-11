@@ -1,26 +1,38 @@
 # Desktop apps on Linux
 
-Linux desktops install FreeTube by default, install Brave from Brave's official package repository and make it the default browser once. FreeTube is a private YouTube client with no Google sign-in; subscriptions, history, and playlists stay in its own data directory. The package is the Flathub user Flatpak `io.freetubeapp.FreeTube`.
+Linux desktops install FreeTube by default, install EasyEffects by default when PipeWire is available, and install Brave from Brave's official package repository and make it the default browser once. FreeTube is a private YouTube client with no Google sign-in; subscriptions, history, and playlists stay in its own data directory. The package is the Flathub user Flatpak `io.freetubeapp.FreeTube`. EasyEffects is a PipeWire equalizer. The package is the Flathub user Flatpak `com.github.wwmm.easyeffects`.
 
 Desktop Macs install FreeTube from the official pinned disk image in the shared engine. Homebrew disabled the `freetube` cask, so the engine does not declare that cask. The disk image is desktop Macs only. Linux and WSL never receive it. This entry point installs the Flatpak. Omarchy keeps its own package path and is refused here.
 
 ## When it installs
 
-`bash bootstrap.sh` copies `install-desktop-apps.sh`, `install-brave.sh`, and `brave.json` to `~/.local/lib/groundwork-linux/` and writes `home/run_after_33-groundwork-linux-desktop-apps.sh` into the local engine checkout. `brave.json` is copied from the `core` submodule, groundwork-core. That hook path is listed in the checkout's `.git/info/exclude`, so `git status` in the engine stays clean. `chezmoi apply` runs the hook. `update-all` and `groundwork-update` both apply the engine, so both run the hook. The hook runs FreeTube and Brave. A missing helper skips only that app.
+`bash bootstrap.sh` copies `install-desktop-apps.sh`, `install-easyeffects.sh`, `install-brave.sh`, and `brave.json` to `~/.local/lib/groundwork-linux/` and writes `home/run_after_33-groundwork-linux-desktop-apps.sh` into the local engine checkout. `brave.json` is copied from the `core` submodule, groundwork-core. That hook path is listed in the checkout's `.git/info/exclude`, so `git status` in the engine stays clean. `chezmoi apply` runs the hook. `update-all` and `groundwork-update` both apply the engine, so both run the hook. The hook runs FreeTube, EasyEffects, and Brave. A missing helper skips only that app.
 
-`update-all` sets `GROUNDWORK_UPDATE_SCOPE=maintenance`. The hook installs FreeTube when it is missing and updates that Flatpak when it is present. `groundwork-update` sets `GROUNDWORK_UPDATE_SCOPE=configuration`. The hook installs FreeTube when it is missing and leaves an existing install unchanged.
+`update-all` sets `GROUNDWORK_UPDATE_SCOPE=maintenance`. The hook installs FreeTube when it is missing and updates that Flatpak when it is present. It does the same for the EasyEffects user Flatpak. `groundwork-update` sets `GROUNDWORK_UPDATE_SCOPE=configuration`. The hook installs those Flatpaks when they are missing and leaves an existing install unchanged.
 
-Running `bash install-desktop-apps.sh` directly uses the same rules. A second run is safe. `--help` and unknown arguments exit before any install.
+Running `bash install-desktop-apps.sh` or `bash install-easyeffects.sh` directly uses the same rules. A second run is safe. `--help` and unknown arguments exit before any install.
 
-Install the `flatpak` package from your distribution before the first desktop apply. On Ubuntu/Debian: `sudo apt install flatpak`. The script adds the Flathub remote for the current user when it installs or updates FreeTube. If adding that remote, installing, or updating fails, the apply prints a warning and continues. The next `update-all` retries FreeTube. A missing `flatpak` command still stops that desktop apply.
+Install the `flatpak` package from your distribution before the first desktop apply. On Ubuntu/Debian: `sudo apt install flatpak`. Each helper adds the Flathub remote for the current user when it installs or updates its Flatpak. If adding that remote, installing, or updating fails, the apply prints a warning and continues. The next `update-all` retries that app. A missing `flatpak` command still stops that helper.
 
 ## What it skips
 
-Headless machines and WSL skip FreeTube. A stored `headless = true` in `~/.config/chezmoi/chezmoi.toml` skips it. With no stored answer, a session without `DISPLAY` and `WAYLAND_DISPLAY` is treated as headless. A stored `headless = false` installs it, including when `update-all` runs without a graphical session. WSL skips it even when WSLg sets a display. Omarchy is refused.
+Headless machines and WSL skip FreeTube and EasyEffects. A stored `headless = true` in `~/.config/chezmoi/chezmoi.toml` skips them. With no stored answer, a session without `DISPLAY` and `WAYLAND_DISPLAY` is treated as headless. A stored `headless = false` installs them, including when `update-all` runs without a graphical session. WSL skips them even when WSLg sets a display. Omarchy is refused. EasyEffects also skips when `pipewire` and `pw-cli` are both missing, and prints that it needs PipeWire. PulseAudio-only machines stay on PulseAudio; Groundwork does not install PulseEffects.
 
 ## Settings
 
 Groundwork does not write FreeTube settings. FreeTube creates `~/.var/app/io.freetubeapp.FreeTube/config/FreeTube` when you use the app. That directory is the data location for the shared Syncthing contract; this repository does not seed it.
+
+## EasyEffects
+
+EasyEffects is the equalizer Groundwork installs on a non-Omarchy Linux desktop that already uses PipeWire. The Flathub user Flatpak includes the plugin set. Groundwork does not ask, and it does not need administrator permission for this path. Native `easyeffects` packages exist on Arch extra, Fedora, and Debian/Ubuntu; those need administrator permission, so they are not the default Groundwork install. If that distribution package or a system Flatpak is already installed, Groundwork keeps it and does not add a user Flatpak beside it.
+
+Reviewed on 2026-11-11 against the Flathub app `com.github.wwmm.easyeffects` and the EasyEffects README (PipeWire only; the Flatpak ships available plugins). A change of that app id, or EasyEffects gaining PulseAudio support, invalidates the review. Groundwork does not pin an EasyEffects build number. Flathub supplies updates for the user Flatpak. The distribution updater supplies updates for a native package Groundwork kept.
+
+Groundwork writes no EasyEffects settings. There is no override list: every upstream default is left in place. Groundwork does not enable autostart or create presets, so it does not start processing audio by itself. Existing user configuration stays yours, including `~/.config/easyeffects` for a native package and the Flatpak data under `~/.var/app/com.github.wwmm.easyeffects`. A second run does not replace those files.
+
+Open EasyEffects from the desktop application menu, or run `flatpak run com.github.wwmm.easyeffects`. Groundwork does not uninstall EasyEffects. Remove the user Flatpak with `flatpak uninstall --user com.github.wwmm.easyeffects`. Remove a distribution package with your distribution's package manager. While the helper stays registered, the next `update-all` installs the user Flatpak again if no copy remains.
+
+The tests stub `flatpak`. They do not prove a real PipeWire session or that EasyEffects opens. On a real Linux desktop with PipeWire, still check that EasyEffects appears in the application menu and that existing presets stay.
 
 ## Keeping the engine clean
 
@@ -28,7 +40,7 @@ The apply hook is local to the engine checkout on this machine. It is not a comm
 
 `git clean -fdx` in the engine checkout removes the hook. Installer fixes in this repository apply on the next `bash bootstrap.sh`. Pulling the engine does not refresh the helper or the hook.
 
-Removing FreeTube from later applies means deleting the hook. A missing helper only skips that app, and the rest of the apply continues. Run `bash bootstrap.sh` on a clean engine to restore the hook and the helpers.
+Removing FreeTube, EasyEffects, or Brave from later applies can be done by deleting that helper; a missing helper only skips that app, and the rest of the apply continues. Deleting the hook skips all three. Run `bash bootstrap.sh` on a clean engine to restore the hook and the helpers.
 
 ## Brave
 
@@ -50,7 +62,7 @@ Reviewed on 2026-10-29 against that spec and against [brave.com/linux](https://b
 | Fedora Atomic | Groundwork prints the `rpm-ostree` commands and installs nothing. The install needs a reboot. |
 | Any other family | One line with https://brave.com/linux/. Nothing is installed. |
 
-Brave publishes amd64 and arm64 packages. After you confirm, the package command is non-interactive. A failed keyring or sources download removes only its temporary file. The previous file stays until a later download succeeds and replaces it. If the Fedora, RHEL, or openSUSE repo file is missing or empty, Groundwork deletes `~/.config/groundwork/brave-rpm-repo-added` and adds the repository again. Headless machines and WSL skip Brave, using the same rules as FreeTube. Omarchy is refused.
+Brave publishes amd64 and arm64 packages. After you confirm, the package command is non-interactive. A failed keyring or sources download removes only its temporary file. The previous file stays until a later download succeeds and replaces it. If the Fedora, RHEL, or openSUSE repo file is missing or empty, Groundwork deletes `~/.config/groundwork/brave-rpm-repo-added` and adds the repository again. Headless machines and WSL skip Brave, using the same rules as FreeTube and EasyEffects. Omarchy is refused.
 
 The install needs administrator permission for the repository, the package, and the policy file. When a terminal is present, Groundwork asks once. The default is no. With no terminal, Groundwork writes nothing and does not record the install as done. Run `install-brave.sh` from a terminal to retry.
 

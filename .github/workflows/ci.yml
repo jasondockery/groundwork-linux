@@ -19,6 +19,7 @@ jobs:
       - run: bash -n bootstrap.sh
       - run: bash -n install-git-filter-repo.sh
       - run: bash -n install-desktop-apps.sh
+      - run: bash -n install-easyeffects.sh
       - run: bash -n install-brave.sh
       - run: bash -n engine-hooks/run_after_33-groundwork-linux-desktop-apps.sh
       - run: python3 -B -m unittest discover -s tests -v
